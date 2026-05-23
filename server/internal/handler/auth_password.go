@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,6 +129,18 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	h.completePasswordLogin(w, r, user)
 }
 
+// loginLockoutWindow / loginLockoutThreshold define the per-email soft
+// lockout. The existing per-IP authVerifyRL middleware does not protect
+// against an attacker rotating through addresses — IPv6 prefix rotation,
+// Tor, or a botnet — against a single email. After 5 failures in any
+// rolling 15-min window /auth/login returns 429 for that email without
+// running bcrypt, regardless of whether the email exists. A successful
+// login clears the counter.
+const (
+	loginLockoutWindow    = 15 * time.Minute
+	loginLockoutThreshold = 5
+)
+
 // Login handles POST /auth/login — email + password verification → JWT.
 // Returns 401 with a generic "invalid credentials" for both unknown email
 // AND wrong password, so the response cannot be used to enumerate which
@@ -150,6 +164,27 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Per-email lockout. Run BEFORE the user lookup + bcrypt verify so
+	// a locked account costs us nothing. Apply to every email submitted
+	// (existing or not) to preserve enumeration defence — otherwise the
+	// presence of a 429 vs 401 would itself leak account existence.
+	since := time.Now().Add(-loginLockoutWindow)
+	failed, err := h.Queries.CountRecentFailedLogins(r.Context(), db.CountRecentFailedLoginsParams{
+		Email:       email,
+		AttemptedAt: pgtype.Timestamptz{Time: since, Valid: true},
+	})
+	if err != nil {
+		slog.Error("CountRecentFailedLogins failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to verify login state")
+		return
+	}
+	if failed >= loginLockoutThreshold {
+		slog.Warn("password login rate-limited", append(logger.RequestAttrs(r), "email", email, "reason", "rate_limited", "attempts", failed)...)
+		w.Header().Set("Retry-After", strconv.Itoa(int(loginLockoutWindow.Seconds())))
+		writeError(w, http.StatusTooManyRequests, "too many failed attempts; try again later")
+		return
+	}
+
 	user, err := h.Queries.GetUserByEmail(r.Context(), email)
 	if err != nil {
 		if isNotFound(err) {
@@ -157,6 +192,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			// same for "no such user" and "wrong password" — cheap
 			// enumeration defence.
 			_ = auth.VerifyPassword("$2a$12$invalid.hash.placeholder.value.value.value.value.value.value", req.Password)
+			h.recordLoginFailure(r.Context(), email, "unknown_email")
 			slog.Warn("password login failed", append(logger.RequestAttrs(r), "email", email, "reason", "unknown_email")...)
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
 			return
@@ -172,16 +208,37 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		// password set yet. Same 401 to the client, but the log
 		// distinguishes the case so future "set up your password" UX
 		// prompts can be triggered off the audit log if needed.
+		h.recordLoginFailure(r.Context(), email, "null_hash")
 		slog.Warn("password login failed", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", email, "reason", "null_hash")...)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	case !auth.VerifyPassword(user.PasswordHash.String, req.Password):
+		h.recordLoginFailure(r.Context(), email, "bad_password")
 		slog.Warn("password login failed", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", email, "reason", "bad_password")...)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
+	// Successful login — clear the counter so the next failure starts
+	// a fresh window. Errors here are non-fatal (the login itself
+	// succeeded); log and continue.
+	if err := h.Queries.ClearFailedLoginAttempts(r.Context(), email); err != nil {
+		slog.Warn("ClearFailedLoginAttempts failed", "error", err, "email", email)
+	}
 	h.completePasswordLogin(w, r, user)
+}
+
+// recordLoginFailure inserts a failed_login_attempt row. Failures here
+// are non-fatal — we'd rather the user see the regular 401 than a 500
+// telling them the audit log is down — but they ARE logged so a wedged
+// table surfaces in ops.
+func (h *Handler) recordLoginFailure(ctx context.Context, email, reason string) {
+	if err := h.Queries.RecordFailedLoginAttempt(ctx, db.RecordFailedLoginAttemptParams{
+		Email:  email,
+		Reason: reason,
+	}); err != nil {
+		slog.Warn("RecordFailedLoginAttempt failed", "error", err, "email", email, "reason", reason)
+	}
 }
 
 // completePasswordLogin produces the JWT, sets cookies, and writes the

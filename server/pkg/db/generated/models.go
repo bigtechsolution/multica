@@ -274,6 +274,13 @@ type DaemonToken struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type FailedLoginAttempt struct {
+	ID          int64              `json:"id"`
+	Email       string             `json:"email"`
+	AttemptedAt pgtype.Timestamptz `json:"attempted_at"`
+	Reason      string             `json:"reason"`
+}
+
 type Feedback struct {
 	ID          pgtype.UUID        `json:"id"`
 	UserID      pgtype.UUID        `json:"user_id"`

@@ -11,6 +11,36 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearFailedLoginAttempts = `-- name: ClearFailedLoginAttempts :exec
+DELETE FROM failed_login_attempt WHERE email = $1
+`
+
+// Called after a successful login to reset the counter for this email.
+func (q *Queries) ClearFailedLoginAttempts(ctx context.Context, email string) error {
+	_, err := q.db.Exec(ctx, clearFailedLoginAttempts, email)
+	return err
+}
+
+const countRecentFailedLogins = `-- name: CountRecentFailedLogins :one
+SELECT COUNT(*) FROM failed_login_attempt
+WHERE email = $1
+  AND attempted_at >= $2
+`
+
+type CountRecentFailedLoginsParams struct {
+	Email       string             `json:"email"`
+	AttemptedAt pgtype.Timestamptz `json:"attempted_at"`
+}
+
+// How many failed login attempts has this email had in the lockout window?
+// Used by handler/auth_password.go to gate Login before bcrypt.
+func (q *Queries) CountRecentFailedLogins(ctx context.Context, arg CountRecentFailedLoginsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentFailedLogins, arg.Email, arg.AttemptedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO "user" (name, email, avatar_url)
 VALUES ($1, $2, $3)
@@ -257,6 +287,21 @@ func (q *Queries) PatchUserOnboarding(ctx context.Context, arg PatchUserOnboardi
 		&i.PasswordUpdatedAt,
 	)
 	return i, err
+}
+
+const recordFailedLoginAttempt = `-- name: RecordFailedLoginAttempt :exec
+INSERT INTO failed_login_attempt (email, reason)
+VALUES ($1, $2)
+`
+
+type RecordFailedLoginAttemptParams struct {
+	Email  string `json:"email"`
+	Reason string `json:"reason"`
+}
+
+func (q *Queries) RecordFailedLoginAttempt(ctx context.Context, arg RecordFailedLoginAttemptParams) error {
+	_, err := q.db.Exec(ctx, recordFailedLoginAttempt, arg.Email, arg.Reason)
+	return err
 }
 
 const setStarterContentState = `-- name: SetStarterContentState :one

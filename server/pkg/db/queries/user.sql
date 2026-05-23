@@ -96,3 +96,18 @@ UPDATE "user" SET
     updated_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- name: CountRecentFailedLogins :one
+-- How many failed login attempts has this email had in the lockout window?
+-- Used by handler/auth_password.go to gate Login before bcrypt.
+SELECT COUNT(*) FROM failed_login_attempt
+WHERE email = $1
+  AND attempted_at >= $2;
+
+-- name: RecordFailedLoginAttempt :exec
+INSERT INTO failed_login_attempt (email, reason)
+VALUES ($1, $2);
+
+-- name: ClearFailedLoginAttempts :exec
+-- Called after a successful login to reset the counter for this email.
+DELETE FROM failed_login_attempt WHERE email = $1;
