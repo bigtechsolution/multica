@@ -628,6 +628,19 @@ export class ApiClient {
     await this.fetch(`/api/issues/${id}`, { method: "DELETE" });
   }
 
+  async setIssueMetadata(id: string, key: string, value: string | number | boolean): Promise<void> {
+    await this.fetch(`/api/issues/${id}/metadata/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    });
+  }
+
+  async deleteIssueMetadata(id: string, key: string): Promise<void> {
+    await this.fetch(`/api/issues/${id}/metadata/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    });
+  }
+
   async batchUpdateIssues(issueIds: string[], updates: UpdateIssueRequest): Promise<{ updated: number }> {
     return this.fetch("/api/issues/batch-update", {
       method: "POST",
