@@ -250,6 +250,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(authRL).Post("/auth/send-code", h.SendCode)
 	r.With(authVerifyRL).Post("/auth/verify-code", h.VerifyCode)
 	r.With(authRL).Post("/auth/google", h.GoogleLogin)
+	// Email + password sign-up / sign-in (handler/auth_password.go).
+	// Reuses the per-IP rate limiters that already gate the magic-link path.
+	r.With(authRL).Post("/auth/register", h.Register)
+	r.With(authVerifyRL).Post("/auth/login", h.Login)
 	r.Post("/auth/logout", h.Logout)
 
 	// Public API
