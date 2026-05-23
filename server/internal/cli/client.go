@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -70,14 +71,22 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("%s %s returned %d: %s", e.Method, e.Path, e.StatusCode, strings.TrimSpace(e.Body))
 }
 
-// NewAPIClient creates a new API client for ctrl commands.
+// NewAPIClient creates a new API client for ctrl commands. When the CLI is
+// invoked from inside a daemon-spawned subprocess for a specific task
+// (MULTICA_TASK_ID env var set), the task id is auto-attached so the server
+// can resolve the LLM routing decision and conditionally redact responses
+// destined for an external LLM. See server/internal/middleware/task_context.go.
 func NewAPIClient(baseURL, workspaceID, token string) *APIClient {
-	return &APIClient{
+	c := &APIClient{
 		BaseURL:     strings.TrimRight(baseURL, "/"),
 		WorkspaceID: workspaceID,
 		Token:       token,
 		HTTPClient:  &http.Client{Timeout: 15 * time.Second},
 	}
+	if taskID := os.Getenv("MULTICA_TASK_ID"); taskID != "" {
+		c.TaskID = taskID
+	}
+	return c
 }
 
 func (c *APIClient) setHeaders(req *http.Request) {

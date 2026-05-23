@@ -308,6 +308,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
+		// TaskContext attaches the LLM routing decision when the caller is a
+		// CLI subprocess spawned by the daemon for a specific task. Used by
+		// issue/comment read handlers to conditionally redact tool-call
+		// responses headed to an external LLM. See middleware.TaskContextHeader.
+		r.Use(middleware.TaskContextMiddleware(queries))
 
 		// --- User-scoped routes (no workspace context required) ---
 		r.Get("/api/me", h.GetMe)

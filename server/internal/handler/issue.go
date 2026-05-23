@@ -1317,6 +1317,12 @@ func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
 	resp := issueToResponse(issue, prefix)
+	// L2/L3 LLM policy: when this read comes from a CLI subprocess on an
+	// external-runtime task, mask workspace name / AWS account IDs / repo
+	// paths before the data is piped into the LLM tool-call response.
+	if redactionRequired(r) {
+		applyIssuePromptRedaction(r, &resp, h.promptContextForWorkspace(r.Context(), issue.WorkspaceID))
+	}
 	detailLabels := h.labelsByIssue(r.Context(), issue.WorkspaceID, []pgtype.UUID{issue.ID})[uuidToString(issue.ID)]
 	if detailLabels == nil {
 		detailLabels = []LabelResponse{}
