@@ -360,6 +360,22 @@ export class ApiClient {
     });
   }
 
+  // Email + password sign-up / sign-in. Same LoginResponse shape as
+  // verifyCode so the auth store can treat both flows identically.
+  async register(email: string, password: string, name?: string): Promise<LoginResponse> {
+    return this.fetch("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, name: name ?? "" }),
+    });
+  }
+
+  async loginWithPassword(email: string, password: string): Promise<LoginResponse> {
+    return this.fetch("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  }
+
   async googleLogin(code: string, redirectUri: string): Promise<LoginResponse> {
     return this.fetch("/auth/google", {
       method: "POST",

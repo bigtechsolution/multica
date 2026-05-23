@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { sanitizeNextUrl, useAuthStore } from "@multica/core/auth";
@@ -27,6 +27,16 @@ import { setLoggedInCookie } from "@/features/auth/auth-cookie";
 import Link from "next/link";
 import { LoginPage, validateCliCallback } from "@multica/views/auth";
 import { useT } from "@multica/views/i18n";
+
+// next/link wrapper that matches LoginPage's LinkComponent prop signature.
+// Keeps SPA navigation for the "Sign up" link inside the login form.
+function NextLinkAdapter({ href, className, children }: { href: string; className?: string; children: ReactNode }) {
+  return (
+    <Link href={href} className={className}>
+      {children}
+    </Link>
+  );
+}
 
 /**
  * Pick where a logged-in user with no explicit `?next=` should land.
@@ -203,6 +213,13 @@ function LoginPageContent() {
           : undefined
       }
       onTokenObtained={setLoggedInCookie}
+      signupHref={
+        // Preserve ?next= across the signup hop so a deep-link target survives
+        // the detour, but drop CLI/desktop handoff params — those are
+        // login-specific flows.
+        nextUrl ? `/signup?next=${encodeURIComponent(nextUrl)}` : "/signup"
+      }
+      LinkComponent={NextLinkAdapter}
       extra={
         <span className="text-xs text-muted-foreground">
           {t(($) => $.web.prefer_desktop)}{" "}
