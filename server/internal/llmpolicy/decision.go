@@ -23,8 +23,10 @@ type Reason string
 const (
 	ReasonDefault            Reason = "default"               // L1 no-op
 	ReasonSwappedByPolicy    Reason = "swapped_by_policy"     // L2/L3 successfully swapped runtime
-	ReasonMCPRequiredSkipped Reason = "mcp_required_skipped"  // agent.mcp_config non-empty, swap forbidden
+	ReasonSwappedViaPair     Reason = "swapped_via_pair"      // L2/L3 swapped to agent.metadata.routing_pair_id (MCP-required agents)
+	ReasonMCPRequiredSkipped Reason = "mcp_required_skipped"  // agent.mcp_config non-empty AND no pair configured, swap forbidden
 	ReasonNoAlternateRuntime Reason = "no_alternate_runtime"  // no online runtime in target class
+	ReasonPairMissing        Reason = "pair_missing"          // routing_pair_id points at archived / nonexistent agent
 	ReasonUnknownProvider    Reason = "unknown_provider"      // L1 provider not in classification table
 	ReasonL3Override         Reason = "l3_override"           // L3 issue override applied as-is (no class change)
 )

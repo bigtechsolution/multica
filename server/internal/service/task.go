@@ -438,7 +438,7 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 		return db.AgentTaskQueue{}, fmt.Errorf("resolve llm policy: %w", err)
 	}
 	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
-		AgentID:           issue.AssigneeID,
+		AgentID:           decision.AgentID,
 		RuntimeID:         decision.RuntimeID,
 		IssueID:           issue.ID,
 		Priority:          priorityToInt(issue.Priority),
@@ -507,7 +507,7 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, ag
 		return db.AgentTaskQueue{}, fmt.Errorf("resolve llm policy: %w", err)
 	}
 	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
-		AgentID:           agentID,
+		AgentID:           decision.AgentID,
 		RuntimeID:         decision.RuntimeID,
 		IssueID:           issue.ID,
 		Priority:          priorityToInt(issue.Priority),
@@ -606,7 +606,7 @@ func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, r
 		return db.AgentTaskQueue{}, fmt.Errorf("resolve llm policy: %w", err)
 	}
 	task, err := s.Queries.CreateQuickCreateTask(ctx, db.CreateQuickCreateTaskParams{
-		AgentID:         agentID,
+		AgentID:         decision.AgentID,
 		RuntimeID:       decision.RuntimeID,
 		Priority:        priorityToInt("high"),
 		Context:         contextJSON,
@@ -654,7 +654,7 @@ func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.ChatSe
 		return db.AgentTaskQueue{}, fmt.Errorf("resolve llm policy: %w", err)
 	}
 	task, err := s.Queries.CreateChatTask(ctx, db.CreateChatTaskParams{
-		AgentID:         chatSession.AgentID,
+		AgentID:         decision.AgentID,
 		RuntimeID:       decision.RuntimeID,
 		Priority:        2, // medium priority for chat
 		ChatSessionID:   chatSession.ID,

@@ -14,6 +14,7 @@ import (
 // stubQ implements runtimeLookup with in-memory tables.
 type stubQ struct {
 	runtimes map[string]db.AgentRuntime // keyed by uuid string
+	agents   map[string]db.Agent        // for GetAgent (pair lookups)
 	alt      map[string]db.AgentRuntime // keyed by provider class (external/local) → runtime to return
 	altErr   error
 }
@@ -23,6 +24,13 @@ func (s *stubQ) GetAgentRuntime(_ context.Context, id pgtype.UUID) (db.AgentRunt
 		return rt, nil
 	}
 	return db.AgentRuntime{}, pgx.ErrNoRows
+}
+
+func (s *stubQ) GetAgent(_ context.Context, id pgtype.UUID) (db.Agent, error) {
+	if a, ok := s.agents[uuidStr(id)]; ok {
+		return a, nil
+	}
+	return db.Agent{}, pgx.ErrNoRows
 }
 
 func (s *stubQ) FindOnlineRuntimeByProvider(_ context.Context, arg db.FindOnlineRuntimeByProviderParams) (db.AgentRuntime, error) {
@@ -125,7 +133,7 @@ func TestResolver(t *testing.T) {
 		}
 	})
 
-	t.Run("L2 local_only respects MCP", func(t *testing.T) {
+	t.Run("L2 local_only respects MCP (no pair configured)", func(t *testing.T) {
 		q := mkQ(claudeRT)
 		ws := db.Workspace{ID: mkUUID(0x99), Settings: settingsJSON(t, map[string]any{"llm_policy": "local_only"})}
 		agent := mkAgent(claudeRT, []byte(`{"mcpServers":{"github":{}}}`))
@@ -134,6 +142,62 @@ func TestResolver(t *testing.T) {
 		mustEq(t, d.Layer, LayerL2)
 		mustEq(t, d.Reason, ReasonMCPRequiredSkipped)
 		mustEq(t, d.Provider, "claude")
+	})
+
+	t.Run("L2 local_only follows routing_pair_id when MCP blocks", func(t *testing.T) {
+		// Original MCP agent on claude. Pair has empty mcp_config on opencode.
+		pairID := mkUUID(0x55)
+		pair := db.Agent{ID: pairID, WorkspaceID: mkUUID(0x99), RuntimeID: opencodeRT.ID, McpConfig: nil}
+		meta := []byte(`{"routing_pair_id":"` + uuidString(pairID) + `"}`)
+		agent := db.Agent{ID: mkUUID(0x77), WorkspaceID: mkUUID(0x99), RuntimeID: claudeRT.ID, McpConfig: []byte(`{"mcpServers":{"github":{}}}`), Metadata: meta}
+		q := &stubQ{
+			runtimes: map[string]db.AgentRuntime{uuidStr(claudeRT.ID): claudeRT, uuidStr(opencodeRT.ID): opencodeRT},
+			agents:   map[string]db.Agent{uuidStr(pairID): pair},
+		}
+		ws := db.Workspace{ID: mkUUID(0x99), Settings: settingsJSON(t, map[string]any{"llm_policy": "local_only"})}
+		d, err := New(nil).withQ(q).Resolve(context.Background(), ws, agent, nil)
+		mustNoErr(t, err)
+		mustEq(t, d.Layer, LayerL2)
+		mustEq(t, d.Reason, ReasonSwappedViaPair)
+		mustEq(t, d.Provider, "opencode")
+		if d.AgentID != pairID {
+			t.Fatalf("expected AgentID to swap to pair %v, got %v", pairID, d.AgentID)
+		}
+	})
+
+	t.Run("pair_missing when routing_pair_id points at archived agent", func(t *testing.T) {
+		pairID := mkUUID(0x55)
+		archivedPair := db.Agent{ID: pairID, WorkspaceID: mkUUID(0x99), RuntimeID: opencodeRT.ID, ArchivedAt: pgtype.Timestamptz{Valid: true}}
+		meta := []byte(`{"routing_pair_id":"` + uuidString(pairID) + `"}`)
+		agent := db.Agent{ID: mkUUID(0x77), WorkspaceID: mkUUID(0x99), RuntimeID: claudeRT.ID, McpConfig: []byte(`{"mcpServers":{}}`), Metadata: meta}
+		// hasMCPConfig only blocks if the map is non-empty — force non-empty.
+		agent.McpConfig = []byte(`{"mcpServers":{"x":{}}}`)
+		q := &stubQ{
+			runtimes: map[string]db.AgentRuntime{uuidStr(claudeRT.ID): claudeRT, uuidStr(opencodeRT.ID): opencodeRT},
+			agents:   map[string]db.Agent{uuidStr(pairID): archivedPair},
+		}
+		ws := db.Workspace{ID: mkUUID(0x99), Settings: settingsJSON(t, map[string]any{"llm_policy": "local_only"})}
+		d, err := New(nil).withQ(q).Resolve(context.Background(), ws, agent, nil)
+		mustNoErr(t, err)
+		mustEq(t, d.Reason, ReasonPairMissing)
+	})
+
+	t.Run("pair mismatch class falls back to no_alternate", func(t *testing.T) {
+		// Original on claude (external), wants local. Pair is ALSO on
+		// claude (external) — useless for this policy direction.
+		pairID := mkUUID(0x55)
+		anotherClaudeRT := mkRuntime(mkUUID(0x44), "claude")
+		pair := db.Agent{ID: pairID, WorkspaceID: mkUUID(0x99), RuntimeID: anotherClaudeRT.ID}
+		meta := []byte(`{"routing_pair_id":"` + uuidString(pairID) + `"}`)
+		agent := db.Agent{ID: mkUUID(0x77), WorkspaceID: mkUUID(0x99), RuntimeID: claudeRT.ID, McpConfig: []byte(`{"mcpServers":{"x":{}}}`), Metadata: meta}
+		q := &stubQ{
+			runtimes: map[string]db.AgentRuntime{uuidStr(claudeRT.ID): claudeRT, uuidStr(anotherClaudeRT.ID): anotherClaudeRT},
+			agents:   map[string]db.Agent{uuidStr(pairID): pair},
+		}
+		ws := db.Workspace{ID: mkUUID(0x99), Settings: settingsJSON(t, map[string]any{"llm_policy": "local_only"})}
+		d, err := New(nil).withQ(q).Resolve(context.Background(), ws, agent, nil)
+		mustNoErr(t, err)
+		mustEq(t, d.Reason, ReasonNoAlternateRuntime)
 	})
 
 	t.Run("L2 local_only no alternate runtime", func(t *testing.T) {
@@ -296,4 +360,23 @@ func mustEq[T comparable](t *testing.T, got, want T) {
 	if got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
+}
+
+// uuidString returns the canonical 8-4-4-4-12 hex form pgtype.UUID.Scan
+// expects. Used in tests to embed a UUID inside a JSON payload that the
+// resolver will parse back into a pgtype.UUID.
+func uuidString(u pgtype.UUID) string {
+	b := u.Bytes
+	hex := func(x byte) string {
+		const h = "0123456789abcdef"
+		return string([]byte{h[x>>4], h[x&0x0f]})
+	}
+	s := ""
+	for i := 0; i < 16; i++ {
+		s += hex(b[i])
+		if i == 3 || i == 5 || i == 7 || i == 9 {
+			s += "-"
+		}
+	}
+	return s
 }

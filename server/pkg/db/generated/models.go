@@ -44,6 +44,8 @@ type Agent struct {
 	McpConfig          []byte             `json:"mcp_config"`
 	Model              pgtype.Text        `json:"model"`
 	ThinkingLevel      pgtype.Text        `json:"thinking_level"`
+	// Per-agent KV metadata. Recognised keys: routing_pair_id (alternate agent for MCP-locked policy swap, server/internal/llmpolicy).
+	Metadata []byte `json:"metadata"`
 }
 
 type AgentRuntime struct {

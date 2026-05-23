@@ -286,7 +286,7 @@ func (s *AutopilotService) dispatchRunOnly(ctx context.Context, ap db.Autopilot,
 	}
 
 	task, err := s.Queries.CreateAutopilotTask(ctx, db.CreateAutopilotTaskParams{
-		AgentID:        agent.ID,
+		AgentID:        decision.AgentID,
 		RuntimeID:      decision.RuntimeID,
 		Priority:       0,
 		AutopilotRunID: run.ID,

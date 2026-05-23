@@ -32,6 +32,7 @@ import (
 type runtimeLookup interface {
 	GetAgentRuntime(ctx context.Context, id pgtype.UUID) (db.AgentRuntime, error)
 	FindOnlineRuntimeByProvider(ctx context.Context, arg db.FindOnlineRuntimeByProviderParams) (db.AgentRuntime, error)
+	GetAgent(ctx context.Context, id pgtype.UUID) (db.Agent, error)
 }
 
 // Resolver turns (workspace, agent, issue) into a Decision.
@@ -53,6 +54,16 @@ type workspaceSettings struct {
 // issueMeta is the subset of issue.metadata the resolver reads.
 type issueMeta struct {
 	LLMOverride IssueOverride `json:"llm_override,omitempty"`
+}
+
+// agentMeta is the subset of agent.metadata the resolver reads.
+type agentMeta struct {
+	// RoutingPairID, when set, names an alternate agent the resolver
+	// will swap to when an L2/L3 policy wants to change runtime class
+	// but agent.mcp_config blocks the direct same-agent swap. The
+	// paired agent must ship with empty mcp_config and a runtime in
+	// the target class — see scripts/seed-agent-pairs.sh.
+	RoutingPairID string `json:"routing_pair_id,omitempty"`
 }
 
 // Resolve picks the runtime + records the reason. issueMetadataRaw may be
@@ -113,10 +124,13 @@ func (r *Resolver) Resolve(
 
 // swap attempts to find an online runtime of targetClass in the same
 // workspace and rewrite the Decision to point at it. If the agent has a
-// non-empty mcp_config the swap is forbidden (OpenCode lacks --mcp-config);
-// if no alternate runtime exists we keep L1. Either way, Layer is preserved
-// (L2 or L3) so the caller sees the policy intent, and Reason explains the
-// outcome.
+// non-empty mcp_config a direct same-agent runtime swap is forbidden
+// (OpenCode lacks --mcp-config) — the resolver instead tries to follow
+// agent.metadata.routing_pair_id to a paired alternate agent. If no
+// pair is configured (or the pair is archived / missing), the swap is
+// recorded as skipped and L1 stands. Either way, Layer is preserved
+// (L2 or L3) so the caller sees the policy intent, and Reason explains
+// the outcome.
 func (r *Resolver) swap(
 	ctx context.Context,
 	wsID pgtype.UUID,
@@ -126,8 +140,7 @@ func (r *Resolver) swap(
 	settings workspaceSettings,
 ) (Decision, error) {
 	if hasMCPConfig(agent.McpConfig) {
-		out.Reason = ReasonMCPRequiredSkipped
-		return out, nil
+		return r.swapViaPair(ctx, wsID, agent, out, targetClass, settings)
 	}
 	alt, err := r.Q.FindOnlineRuntimeByProvider(ctx, db.FindOnlineRuntimeByProviderParams{
 		WorkspaceID: wsID,
@@ -145,6 +158,82 @@ func (r *Resolver) swap(
 	out.Reason = ReasonSwappedByPolicy
 	out.RedactExternal = Classify(alt.Provider) == ClassExternal && derefBoolDefault(settings.RedactBeforeExternal, true)
 	return out, nil
+}
+
+// swapViaPair is the MCP-required fallback for swap(). Reads
+// agent.metadata.routing_pair_id; if set, resolves the paired agent
+// and re-runs the runtime selection against the pair's own runtime.
+// The pair's class must match the target class for the swap to count.
+func (r *Resolver) swapViaPair(
+	ctx context.Context,
+	wsID pgtype.UUID,
+	original db.Agent,
+	out Decision,
+	targetClass ProviderClass,
+	settings workspaceSettings,
+) (Decision, error) {
+	meta := parseAgentMeta(original.Metadata)
+	if meta.RoutingPairID == "" {
+		out.Reason = ReasonMCPRequiredSkipped
+		return out, nil
+	}
+	pairUUID, ok := parsePairUUID(meta.RoutingPairID)
+	if !ok {
+		out.Reason = ReasonPairMissing
+		return out, nil
+	}
+	paired, err := r.Q.GetAgent(ctx, pairUUID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			out.Reason = ReasonPairMissing
+			return out, nil
+		}
+		return Decision{}, fmt.Errorf("llmpolicy: load paired agent: %w", err)
+	}
+	if paired.ArchivedAt.Valid || !uuidEqual(paired.WorkspaceID, wsID) {
+		out.Reason = ReasonPairMissing
+		return out, nil
+	}
+	pairedRuntime, err := r.Q.GetAgentRuntime(ctx, paired.RuntimeID)
+	if err != nil {
+		return Decision{}, fmt.Errorf("llmpolicy: load paired runtime: %w", err)
+	}
+	if Classify(pairedRuntime.Provider) != targetClass {
+		// Pair runtime doesn't match the policy direction — treat as
+		// "no alternate" rather than misleadingly claiming success.
+		out.Reason = ReasonNoAlternateRuntime
+		return out, nil
+	}
+	out.AgentID = paired.ID
+	out.RuntimeID = pairedRuntime.ID
+	out.Provider = pairedRuntime.Provider
+	out.Reason = ReasonSwappedViaPair
+	out.RedactExternal = Classify(pairedRuntime.Provider) == ClassExternal && derefBoolDefault(settings.RedactBeforeExternal, true)
+	return out, nil
+}
+
+func parseAgentMeta(raw []byte) agentMeta {
+	var m agentMeta
+	if len(raw) == 0 {
+		return m
+	}
+	_ = json.Unmarshal(raw, &m)
+	return m
+}
+
+func parsePairUUID(s string) (pgtype.UUID, bool) {
+	var u pgtype.UUID
+	if err := u.Scan(s); err != nil {
+		return pgtype.UUID{}, false
+	}
+	return u, u.Valid
+}
+
+func uuidEqual(a, b pgtype.UUID) bool {
+	if a.Valid != b.Valid {
+		return false
+	}
+	return a.Bytes == b.Bytes
 }
 
 // classForPolicy returns the target class to swap to + whether a swap is
