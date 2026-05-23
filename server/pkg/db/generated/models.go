@@ -96,6 +96,8 @@ type AgentTaskQueue struct {
 	TriggerSummary    pgtype.Text        `json:"trigger_summary"`
 	ForceFreshSession bool               `json:"force_fresh_session"`
 	IsLeaderTask      bool               `json:"is_leader_task"`
+	// LLM routing decision recorded at enqueue. See server/internal/llmpolicy.
+	RoutingDecision []byte `json:"routing_decision"`
 }
 
 type ArchitectureEstimate struct {
