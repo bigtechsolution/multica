@@ -360,7 +360,7 @@ function PastRow({ task, issueId }: { task: AgentTask; issueId: string }) {
     if (retrying) return;
     setRetrying(true);
     try {
-      await api.rerunIssue(issueId, task.id);
+      await api.rerunIssue(issueId, { taskId: task.id });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t(($) => $.execution_log.retry_failed));
     } finally {

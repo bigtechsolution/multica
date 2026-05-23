@@ -105,6 +105,13 @@ type RerunIssueRequest struct {
 	// assignee — so clicking retry on row that belonged to a now-displaced
 	// agent re-fires that same agent, not the new assignee.
 	TaskID string `json:"task_id,omitempty"`
+	// LLMOverride, when set, atomically writes issue.metadata.llm_override
+	// before the rerun fires so the resolver picks the requested runtime
+	// class on this new dispatch. Values: "local" | "cloud" | "clear".
+	// "clear" removes any existing override. Empty / omitted = leave
+	// metadata untouched. See server/internal/llmpolicy for resolution
+	// order; L3 override beats workspace policy + agent default.
+	LLMOverride string `json:"llm_override,omitempty"`
 }
 
 // RerunIssue manually re-enqueues an agent run for the issue. By default it
@@ -141,6 +148,40 @@ func (h *Handler) RerunIssue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sourceTaskID = parsed
+	}
+
+	// Atomically apply L3 override before re-enqueueing so the resolver
+	// reads the requested value when the new task fires. Done before the
+	// rerun call (not after) so a metadata-write failure aborts the
+	// rerun rather than leaving the row half-changed.
+	switch req.LLMOverride {
+	case "":
+		// no-op — preserve whatever override is already on the issue.
+	case "local", "cloud":
+		valueJSON, _ := json.Marshal(req.LLMOverride)
+		if _, err := h.Queries.SetIssueMetadataKey(r.Context(), db.SetIssueMetadataKeyParams{
+			ID:          issue.ID,
+			WorkspaceID: issue.WorkspaceID,
+			Key:         "llm_override",
+			Value:       valueJSON,
+		}); err != nil {
+			slog.Warn("issue rerun: failed to set llm_override", "issue_id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to apply llm_override")
+			return
+		}
+	case "clear":
+		if _, err := h.Queries.DeleteIssueMetadataKey(r.Context(), db.DeleteIssueMetadataKeyParams{
+			ID:          issue.ID,
+			WorkspaceID: issue.WorkspaceID,
+			Key:         "llm_override",
+		}); err != nil {
+			slog.Warn("issue rerun: failed to clear llm_override", "issue_id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to clear llm_override")
+			return
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "llm_override must be one of: local, cloud, clear")
+		return
 	}
 
 	task, err := h.TaskService.RerunIssue(r.Context(), issue.ID, sourceTaskID, pgtype.UUID{})

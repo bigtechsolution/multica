@@ -1170,10 +1170,16 @@ export class ApiClient {
     });
   }
 
-  async rerunIssue(issueId: string, taskId?: string): Promise<AgentTask> {
+  async rerunIssue(
+    issueId: string,
+    opts?: { taskId?: string; llmOverride?: "local" | "cloud" | "clear" },
+  ): Promise<AgentTask> {
+    const body: Record<string, string> = {};
+    if (opts?.taskId) body.task_id = opts.taskId;
+    if (opts?.llmOverride) body.llm_override = opts.llmOverride;
     return this.fetch(`/api/issues/${issueId}/rerun`, {
       method: "POST",
-      body: JSON.stringify(taskId ? { task_id: taskId } : {}),
+      body: JSON.stringify(body),
     });
   }
 

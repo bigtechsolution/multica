@@ -4,16 +4,22 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
-const { setIssueMetadataMock, deleteIssueMetadataMock } = vi.hoisted(() => ({
+const { setIssueMetadataMock, deleteIssueMetadataMock, rerunIssueMock } = vi.hoisted(() => ({
   setIssueMetadataMock: vi.fn(),
   deleteIssueMetadataMock: vi.fn(),
+  rerunIssueMock: vi.fn(),
 }));
 
 vi.mock("@multica/core/api", () => ({
   api: {
     setIssueMetadata: setIssueMetadataMock,
     deleteIssueMetadata: deleteIssueMetadataMock,
+    rerunIssue: rerunIssueMock,
   },
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("@multica/core/hooks", () => ({
@@ -78,6 +84,30 @@ describe("LlmOverrideControl", () => {
 
     await waitFor(() => {
       expect(deleteIssueMetadataMock).toHaveBeenCalledWith("iss-1", "llm_override");
+    });
+  });
+
+  it("Rerun button calls api.rerunIssue with current override (cloud)", async () => {
+    rerunIssueMock.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderWithQuery(<LlmOverrideControl issue={mkIssue({ llm_override: "cloud" })} />);
+
+    await user.click(screen.getByRole("button", { name: /Re-run issue with the selected LLM/i }));
+
+    await waitFor(() => {
+      expect(rerunIssueMock).toHaveBeenCalledWith("iss-1", { llmOverride: "cloud" });
+    });
+  });
+
+  it("Rerun maps Default segment to llm_override='clear'", async () => {
+    rerunIssueMock.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderWithQuery(<LlmOverrideControl issue={mkIssue()} />);
+
+    await user.click(screen.getByRole("button", { name: /Re-run issue with the selected LLM/i }));
+
+    await waitFor(() => {
+      expect(rerunIssueMock).toHaveBeenCalledWith("iss-1", { llmOverride: "clear" });
     });
   });
 

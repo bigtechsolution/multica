@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Play } from "lucide-react";
+import { toast } from "sonner";
 import {
   readLLMOverride,
   useSetIssueLLMOverride,
   type LLMOverride,
 } from "@multica/core/issues";
+import { api } from "@multica/core/api";
 import type { Issue } from "@multica/core/types";
 
 /**
@@ -41,35 +44,67 @@ export function LlmOverrideControl({ issue }: { issue: Issue }) {
     });
   };
 
+  const [rerunPending, setRerunPending] = useState(false);
+  const handleRerun = async () => {
+    setRerunPending(true);
+    try {
+      // Send the *current visible* selection so the server applies it
+      // atomically with the rerun. "default" maps to "clear" — the server
+      // removes any existing override before reusing the issue's L1/L2
+      // resolution path.
+      const override =
+        value === "local" ? "local" : value === "cloud" ? "cloud" : "clear";
+      await api.rerunIssue(issue.id, { llmOverride: override });
+      toast.success(`Re-queued with ${value === "default" ? "default" : value === "local" ? "local runtime" : "cloud runtime"}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rerun failed");
+    } finally {
+      setRerunPending(false);
+    }
+  };
+
   return (
-    <div
-      role="radiogroup"
-      aria-label="LLM routing override"
-      title="Applies on next dispatch. MCP-required agents silently keep their L1 default."
-      className="inline-flex rounded-md border border-border/60 bg-background overflow-hidden"
-    >
-      {segments.map((s) => {
-        const active = value === s.value;
-        return (
-          <button
-            key={s.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onPick(s.value)}
-            disabled={setOverride.isPending && pending !== s.value}
-            className={
-              "px-2 py-0.5 text-[11px] font-medium transition-colors " +
-              (active
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground") +
-              " disabled:opacity-50"
-            }
-          >
-            {s.label}
-          </button>
-        );
-      })}
+    <div className="inline-flex items-center gap-1.5">
+      <div
+        role="radiogroup"
+        aria-label="LLM routing override"
+        title="Applies on next dispatch. MCP-required agents silently keep their L1 default."
+        className="inline-flex rounded-md border border-border/60 bg-background overflow-hidden"
+      >
+        {segments.map((s) => {
+          const active = value === s.value;
+          return (
+            <button
+              key={s.value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onPick(s.value)}
+              disabled={setOverride.isPending && pending !== s.value}
+              className={
+                "px-2 py-0.5 text-[11px] font-medium transition-colors " +
+                (active
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground") +
+                " disabled:opacity-50"
+              }
+            >
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        onClick={handleRerun}
+        disabled={rerunPending}
+        title="Apply the current LLM choice and re-run this issue now"
+        aria-label="Re-run issue with the selected LLM"
+        className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
+      >
+        <Play className="h-3 w-3" />
+        {rerunPending ? "Rerunning…" : "Rerun"}
+      </button>
     </div>
   );
 }
