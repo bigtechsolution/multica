@@ -42,7 +42,7 @@ VALUES (
     $10::uuid,
     $2, $3, $4, $5, $6, $7, $8, $9
 )
-RETURNING id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at
+RETURNING id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at, routing_decision
 `
 
 type CreateArchitectureEstimateParams struct {
@@ -85,12 +85,13 @@ func (q *Queries) CreateArchitectureEstimate(ctx context.Context, arg CreateArch
 		&i.Breakdown,
 		&i.CostMd,
 		&i.CreatedAt,
+		&i.RoutingDecision,
 	)
 	return i, err
 }
 
 const getArchitectureEstimate = `-- name: GetArchitectureEstimate :one
-SELECT id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at FROM architecture_estimate
+SELECT id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at, routing_decision FROM architecture_estimate
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -115,12 +116,13 @@ func (q *Queries) GetArchitectureEstimate(ctx context.Context, arg GetArchitectu
 		&i.Breakdown,
 		&i.CostMd,
 		&i.CreatedAt,
+		&i.RoutingDecision,
 	)
 	return i, err
 }
 
 const getLatestArchitectureEstimateBySpecHash = `-- name: GetLatestArchitectureEstimateBySpecHash :one
-SELECT id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at FROM architecture_estimate
+SELECT id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at, routing_decision FROM architecture_estimate
 WHERE workspace_id = $1
   AND spec_hash = $2
   AND pricing_snapshot_id = $3
@@ -153,12 +155,13 @@ func (q *Queries) GetLatestArchitectureEstimateBySpecHash(ctx context.Context, a
 		&i.Breakdown,
 		&i.CostMd,
 		&i.CreatedAt,
+		&i.RoutingDecision,
 	)
 	return i, err
 }
 
 const listArchitectureEstimatesForIssue = `-- name: ListArchitectureEstimatesForIssue :many
-SELECT id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at FROM architecture_estimate
+SELECT id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at, routing_decision FROM architecture_estimate
 WHERE issue_id = $1 AND workspace_id = $2
 ORDER BY created_at DESC
 LIMIT $3
@@ -194,6 +197,7 @@ func (q *Queries) ListArchitectureEstimatesForIssue(ctx context.Context, arg Lis
 			&i.Breakdown,
 			&i.CostMd,
 			&i.CreatedAt,
+			&i.RoutingDecision,
 		); err != nil {
 			return nil, err
 		}
@@ -206,7 +210,7 @@ func (q *Queries) ListArchitectureEstimatesForIssue(ctx context.Context, arg Lis
 }
 
 const listArchitectureEstimatesForWorkspace = `-- name: ListArchitectureEstimatesForWorkspace :many
-SELECT id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at FROM architecture_estimate
+SELECT id, workspace_id, issue_id, spec_hash, spec_path, pricing_snapshot_id, region, monthly_usd, yearly_usd, breakdown, cost_md, created_at, routing_decision FROM architecture_estimate
 WHERE workspace_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -242,6 +246,7 @@ func (q *Queries) ListArchitectureEstimatesForWorkspace(ctx context.Context, arg
 			&i.Breakdown,
 			&i.CostMd,
 			&i.CreatedAt,
+			&i.RoutingDecision,
 		); err != nil {
 			return nil, err
 		}

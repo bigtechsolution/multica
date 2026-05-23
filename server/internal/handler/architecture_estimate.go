@@ -96,6 +96,10 @@ func serializeEstimate(e db.ArchitectureEstimate) map[string]any {
 	} else {
 		out["issue_id"] = nil
 	}
+	// routing_decision is non-NULL (DEFAULT '{}') so always emit; the
+	// frontend treats an empty object as "no decision recorded" and
+	// shows a dash. Passes raw to avoid double-decoding.
+	out["routing_decision"] = json.RawMessage(e.RoutingDecision)
 	return out
 }
 

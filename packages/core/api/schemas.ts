@@ -192,6 +192,19 @@ const ArchitectureEstimateBreakdownItemSchema = z.object({
   notes: z.string().optional(),
 }).loose();
 
+// routing_decision is the snapshot the cost-analyst agent stamps on each
+// estimate at write time. Empty object = pre-Stage-G demo / no decision
+// recorded. All fields optional so the schema tolerates a future server
+// adding new keys.
+const ArchitectureEstimateRoutingDecisionSchema = z.object({
+  layer: z.enum(["L1", "L2", "L3"]).optional(),
+  reason: z.string().optional(),
+  policy: z.enum(["hybrid", "local_only", "cloud_first"]).optional(),
+  override: z.enum(["local", "cloud"]).optional(),
+  provider: z.string().optional(),
+  redact_external: z.boolean().optional(),
+}).loose();
+
 const ArchitectureEstimateSchema = z.object({
   id: z.string(),
   workspace_id: z.string(),
@@ -203,6 +216,7 @@ const ArchitectureEstimateSchema = z.object({
   monthly_usd: z.number().default(0),
   yearly_usd: z.number().default(0),
   breakdown: z.array(ArchitectureEstimateBreakdownItemSchema).default([]),
+  routing_decision: ArchitectureEstimateRoutingDecisionSchema.default({}),
   created_at: z.string(),
 }).loose();
 

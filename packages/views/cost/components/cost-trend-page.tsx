@@ -234,6 +234,7 @@ function EstimatesTable({
           <TableHead>Created</TableHead>
           <TableHead>Spec</TableHead>
           <TableHead>Region</TableHead>
+          <TableHead>Layer</TableHead>
           <TableHead className="text-right">Monthly</TableHead>
           <TableHead className="text-right">Yearly</TableHead>
         </TableRow>
@@ -246,12 +247,42 @@ function EstimatesTable({
             </TableCell>
             <TableCell className="font-mono text-xs">{e.spec_path}</TableCell>
             <TableCell className="text-xs">{e.region}</TableCell>
+            <TableCell><LayerBadge decision={e.routing_decision} /></TableCell>
             <TableCell className="text-right tabular-nums">{currency.format(e.monthly_usd)}</TableCell>
             <TableCell className="text-right tabular-nums">{currency.format(e.yearly_usd)}</TableCell>
           </TableRow>
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+// LayerBadge surfaces which LLM layer + provider produced an estimate.
+// Empty object = pre-Stage-G demo row (no decision recorded) → shows a
+// dash. Tooltip carries reason + override so a user inspecting an odd
+// cost spike can trace it back to "this ran on Claude because the issue
+// had llm_override=cloud".
+function LayerBadge({ decision }: { decision: { layer?: string; reason?: string; provider?: string; override?: string } }) {
+  if (!decision?.layer) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const tone =
+    decision.layer === "L3"
+      ? "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+      : decision.layer === "L2"
+        ? "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200"
+        : "bg-muted text-muted-foreground";
+  const title = [decision.reason, decision.override && `override=${decision.override}`]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}
+      title={title || undefined}
+    >
+      <span>{decision.layer}</span>
+      {decision.provider && <span className="opacity-70">· {decision.provider}</span>}
+    </span>
   );
 }
 
@@ -266,5 +297,11 @@ function useEstimateRows() {
     monthly_usd: number;
     yearly_usd: number;
     created_at: string;
+    routing_decision: {
+      layer?: "L1" | "L2" | "L3";
+      reason?: string;
+      provider?: string;
+      override?: "local" | "cloud";
+    };
   }>;
 }

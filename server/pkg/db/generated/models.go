@@ -113,6 +113,8 @@ type ArchitectureEstimate struct {
 	Breakdown         []byte             `json:"breakdown"`
 	CostMd            string             `json:"cost_md"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	// Snapshot of agent_task_queue.routing_decision from the task that produced this estimate. Shape matches server/internal/llmpolicy.Decision.
+	RoutingDecision []byte `json:"routing_decision"`
 }
 
 type Attachment struct {

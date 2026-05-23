@@ -18,6 +18,21 @@ export interface ArchitectureEstimate {
   monthly_usd: number;
   yearly_usd: number;
   breakdown: ArchitectureEstimateBreakdownItem[];
+  /**
+   * Snapshot of the llmpolicy.Decision that ran the task producing this
+   * estimate. Empty object = no decision recorded (pre-Stage-G demo
+   * rows). See server/internal/llmpolicy/decision.go for the canonical
+   * shape; every field is optional here so unknown layers/providers
+   * round-trip cleanly.
+   */
+  routing_decision: {
+    layer?: "L1" | "L2" | "L3";
+    reason?: string;
+    policy?: "hybrid" | "local_only" | "cloud_first";
+    override?: "local" | "cloud";
+    provider?: string;
+    redact_external?: boolean;
+  };
   created_at: string;
 }
 
