@@ -1,6 +1,7 @@
 import type { Issue, IssueMetadata, IssueStatus, IssuePriority, IssueAssigneeType } from "./issue";
 import type { MemberRole } from "./workspace";
 import type { Project } from "./project";
+import type { ArchitectureEstimate } from "./architecture-estimate";
 
 // Issue API
 export interface CreateIssueRequest {
@@ -100,6 +101,20 @@ export interface ListGroupedIssuesParams {
 /** Raw backend response shape for `GET /api/issues`. */
 export interface ListIssuesResponse {
   issues: Issue[];
+  total: number;
+}
+
+// --- Architecture cost estimates (Stage J) ---
+
+export interface ListEstimatesParams {
+  limit?: number;
+  offset?: number;
+  workspace_id?: string;
+}
+
+/** Raw backend response shape for `GET /api/estimates`. */
+export interface ListEstimatesResponse {
+  estimates: ArchitectureEstimate[];
   total: number;
 }
 

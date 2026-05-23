@@ -393,6 +393,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Delete("/{id}", h.DeleteIssueTemplate)
 			})
 
+			// Cost estimates (Stage J — Cost Trend dashboard)
+			r.Get("/api/estimates", h.ListEstimates)
+
 			// Issues
 			r.Route("/api/issues", func(r chi.Router) {
 				r.Get("/search", h.SearchIssues)

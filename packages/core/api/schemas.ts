@@ -6,6 +6,7 @@ import type {
   Attachment,
   CreateAgentFromTemplateResponse,
   GroupedIssuesResponse,
+  ListEstimatesResponse,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
   TimelineEntry,
@@ -173,6 +174,45 @@ export const ListIssuesResponseSchema = z.object({
 
 export const EMPTY_LIST_ISSUES_RESPONSE: ListIssuesResponse = {
   issues: [],
+  total: 0,
+};
+
+// --- Architecture cost estimates (Stage J) ---
+// Lenient on every field: backend rolls and the trend page must keep
+// rendering even when a future server returns a new `region` value or
+// drops `breakdown` for a sparse row.
+
+const ArchitectureEstimateBreakdownItemSchema = z.object({
+  section: z.string().optional(),
+  resource: z.string().optional(),
+  qty: z.number().optional(),
+  monthly_usd: z.number().optional(),
+  yearly_usd: z.number().optional(),
+  unit: z.string().optional(),
+  notes: z.string().optional(),
+}).loose();
+
+const ArchitectureEstimateSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  issue_id: z.string().nullable(),
+  spec_hash: z.string(),
+  spec_path: z.string(),
+  pricing_snapshot_id: z.string(),
+  region: z.string(),
+  monthly_usd: z.number().default(0),
+  yearly_usd: z.number().default(0),
+  breakdown: z.array(ArchitectureEstimateBreakdownItemSchema).default([]),
+  created_at: z.string(),
+}).loose();
+
+export const ListEstimatesResponseSchema = z.object({
+  estimates: z.array(ArchitectureEstimateSchema).default([]),
+  total: z.number().default(0),
+}).loose();
+
+export const EMPTY_LIST_ESTIMATES_RESPONSE: ListEstimatesResponse = {
+  estimates: [],
   total: 0,
 };
 

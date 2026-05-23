@@ -4,6 +4,8 @@ import type {
   UpdateIssueRequest,
   GroupedIssuesResponse,
   ListIssuesResponse,
+  ListEstimatesParams,
+  ListEstimatesResponse,
   SearchIssuesResponse,
   SearchProjectsResponse,
   UpdateMeRequest,
@@ -132,6 +134,7 @@ import {
   EMPTY_CLOUD_RUNTIME_NODE_LIST,
   EMPTY_CREATE_AGENT_FROM_TEMPLATE_RESPONSE,
   EMPTY_GROUPED_ISSUES_RESPONSE,
+  EMPTY_LIST_ESTIMATES_RESPONSE,
   EMPTY_LIST_ISSUES_RESPONSE,
   EMPTY_SQUAD_MEMBER_STATUS_LIST,
   EMPTY_TIMELINE_ENTRIES,
@@ -139,6 +142,7 @@ import {
   EMPTY_LIST_WEBHOOK_DELIVERIES_RESPONSE,
   EMPTY_WEBHOOK_DELIVERY,
   GroupedIssuesResponseSchema,
+  ListEstimatesResponseSchema,
   ListIssuesResponseSchema,
   ListWebhookDeliveriesResponseSchema,
   RuntimeHourlyActivityListSchema,
@@ -423,6 +427,20 @@ export class ApiClient {
     });
     return parseWithFallback(raw, UserSchema, EMPTY_USER, {
       endpoint: "PATCH /api/me",
+    });
+  }
+
+  // Architecture cost estimates (Stage J)
+  async listEstimates(params?: ListEstimatesParams): Promise<ListEstimatesResponse> {
+    const search = new URLSearchParams();
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.offset) search.set("offset", String(params.offset));
+    if (params?.workspace_id) search.set("workspace_id", params.workspace_id);
+    const qs = search.toString();
+    const path = qs ? `/api/estimates?${qs}` : "/api/estimates";
+    const raw = await this.fetch<unknown>(path);
+    return parseWithFallback(raw, ListEstimatesResponseSchema, EMPTY_LIST_ESTIMATES_RESPONSE, {
+      endpoint: "GET /api/estimates",
     });
   }
 
