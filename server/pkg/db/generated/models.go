@@ -98,6 +98,21 @@ type AgentTaskQueue struct {
 	IsLeaderTask      bool               `json:"is_leader_task"`
 }
 
+type ArchitectureEstimate struct {
+	ID                pgtype.UUID        `json:"id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	IssueID           pgtype.UUID        `json:"issue_id"`
+	SpecHash          string             `json:"spec_hash"`
+	SpecPath          string             `json:"spec_path"`
+	PricingSnapshotID pgtype.UUID        `json:"pricing_snapshot_id"`
+	Region            string             `json:"region"`
+	MonthlyUsd        pgtype.Numeric     `json:"monthly_usd"`
+	YearlyUsd         pgtype.Numeric     `json:"yearly_usd"`
+	Breakdown         []byte             `json:"breakdown"`
+	CostMd            string             `json:"cost_md"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
 type Attachment struct {
 	ID            pgtype.UUID        `json:"id"`
 	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
@@ -455,6 +470,16 @@ type PinnedItem struct {
 	ItemID      pgtype.UUID        `json:"item_id"`
 	Position    float64            `json:"position"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type PricingSnapshot struct {
+	ID         pgtype.UUID        `json:"id"`
+	Region     string             `json:"region"`
+	Source     string             `json:"source"`
+	CapturedAt pgtype.Timestamptz `json:"captured_at"`
+	Services   []byte             `json:"services"`
+	RawMeta    []byte             `json:"raw_meta"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
 type Project struct {
