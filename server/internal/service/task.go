@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/llmpolicy"
 	"github.com/multica-ai/multica/server/internal/mention"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -30,6 +31,10 @@ type TaskService struct {
 	Bus       *events.Bus
 	Analytics analytics.Client
 	Wakeup    TaskWakeupNotifier
+	// Policy resolves which runtime an agent task should run on, applying
+	// workspace.settings.llm_policy and per-issue overrides. See
+	// server/internal/llmpolicy. Always non-nil after NewTaskService.
+	Policy *llmpolicy.Resolver
 	// EmptyClaim caches "this runtime has no queued task" so the daemon
 	// poll path can skip a Postgres scan on the steady-state empty case.
 	// Optional — a nil cache disables the fast path and every claim
@@ -109,7 +114,22 @@ func NewTaskService(q *db.Queries, tx TxStarter, hub *realtime.Hub, bus *events.
 	if len(wakeups) > 0 {
 		wakeup = wakeups[0]
 	}
-	return &TaskService{Queries: q, TxStarter: tx, Hub: hub, Bus: bus, Wakeup: wakeup}
+	return &TaskService{Queries: q, TxStarter: tx, Hub: hub, Bus: bus, Wakeup: wakeup, Policy: llmpolicy.New(q)}
+}
+
+// resolveDecision runs the 3-layer LLM routing chain for an agent task.
+// Failure modes:
+//   - workspace load failure → returns an empty Decision + error so the
+//     caller can surface it.
+//   - resolver failure → same.
+// Callers stash the returned Decision.RuntimeID into the queue insert and
+// pass Decision.Marshal() to the routing_decision column.
+func (s *TaskService) resolveDecision(ctx context.Context, agent db.Agent, issueMetadata []byte) (llmpolicy.Decision, error) {
+	ws, err := s.Queries.GetWorkspace(ctx, agent.WorkspaceID)
+	if err != nil {
+		return llmpolicy.Decision{}, fmt.Errorf("llmpolicy load workspace: %w", err)
+	}
+	return s.Policy.Resolve(ctx, ws, agent, issueMetadata)
 }
 
 var trivialDoneMarkers = []string{
@@ -412,14 +432,20 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
 	}
 
+	decision, err := s.resolveDecision(ctx, agent, issue.Metadata)
+	if err != nil {
+		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("resolve llm policy: %w", err)
+	}
 	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
 		AgentID:           issue.AssigneeID,
-		RuntimeID:         agent.RuntimeID,
+		RuntimeID:         decision.RuntimeID,
 		IssueID:           issue.ID,
 		Priority:          priorityToInt(issue.Priority),
 		TriggerCommentID:  triggerCommentID,
 		TriggerSummary:    s.buildCommentTriggerSummary(ctx, triggerCommentID),
 		ForceFreshSession: pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
+		RoutingDecision:   decision.Marshal(),
 	})
 	if err != nil {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
@@ -475,15 +501,21 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, ag
 		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
 	}
 
+	decision, err := s.resolveDecision(ctx, agent, issue.Metadata)
+	if err != nil {
+		slog.Error("mention task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("resolve llm policy: %w", err)
+	}
 	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
 		AgentID:           agentID,
-		RuntimeID:         agent.RuntimeID,
+		RuntimeID:         decision.RuntimeID,
 		IssueID:           issue.ID,
 		Priority:          priorityToInt(issue.Priority),
 		TriggerCommentID:  triggerCommentID,
 		TriggerSummary:    s.buildCommentTriggerSummary(ctx, triggerCommentID),
 		IsLeaderTask:      pgtype.Bool{Bool: isLeader, Valid: isLeader},
 		ForceFreshSession: pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
+		RoutingDecision:   decision.Marshal(),
 	})
 	if err != nil {
 		slog.Error("mention task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
@@ -569,11 +601,16 @@ func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, r
 		return db.AgentTaskQueue{}, fmt.Errorf("marshal quick-create context: %w", err)
 	}
 
+	decision, err := s.resolveDecision(ctx, agent, nil)
+	if err != nil {
+		return db.AgentTaskQueue{}, fmt.Errorf("resolve llm policy: %w", err)
+	}
 	task, err := s.Queries.CreateQuickCreateTask(ctx, db.CreateQuickCreateTaskParams{
-		AgentID:   agentID,
-		RuntimeID: agent.RuntimeID,
-		Priority:  priorityToInt("high"),
-		Context:   contextJSON,
+		AgentID:         agentID,
+		RuntimeID:       decision.RuntimeID,
+		Priority:        priorityToInt("high"),
+		Context:         contextJSON,
+		RoutingDecision: decision.Marshal(),
 	})
 	if err != nil {
 		return db.AgentTaskQueue{}, fmt.Errorf("create quick-create task: %w", err)
@@ -611,11 +648,17 @@ func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.ChatSe
 		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
 	}
 
+	decision, err := s.resolveDecision(ctx, agent, nil)
+	if err != nil {
+		slog.Error("chat task enqueue failed", "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("resolve llm policy: %w", err)
+	}
 	task, err := s.Queries.CreateChatTask(ctx, db.CreateChatTaskParams{
-		AgentID:       chatSession.AgentID,
-		RuntimeID:     agent.RuntimeID,
-		Priority:      2, // medium priority for chat
-		ChatSessionID: chatSession.ID,
+		AgentID:         chatSession.AgentID,
+		RuntimeID:       decision.RuntimeID,
+		Priority:        2, // medium priority for chat
+		ChatSessionID:   chatSession.ID,
+		RoutingDecision: decision.Marshal(),
 	})
 	if err != nil {
 		slog.Error("chat task enqueue failed", "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)

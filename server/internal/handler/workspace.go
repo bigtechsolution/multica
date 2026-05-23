@@ -32,6 +32,30 @@ func generateIssuePrefix(name string) string {
 	return letters
 }
 
+// WorkspaceResponse is the JSON shape of a workspace.
+//
+// Settings is a free-form JSONB blob. The keys the backend recognises and
+// reads at runtime are documented here as the authoritative source-of-truth
+// (the column has no DDL constraints so accidental drift will not error —
+// only this comment will). Unknown keys are preserved on write and ignored
+// on read.
+//
+// Recognised Settings keys (Stage I — 3-layer LLM routing):
+//
+//   - "llm_policy"             string   "hybrid" (default) | "local_only" | "cloud_first"
+//                                       — read by server/internal/llmpolicy at dispatch.
+//   - "redact_before_external" bool     default true — when true AND the resolved
+//                                       runtime provider is external (Claude / Codex /
+//                                       etc.), issue + comment reads from a CLI
+//                                       subprocess on that task are passed through
+//                                       redact.Prompt before transmission.
+//   - "external_provider"      string   informational — preferred external provider
+//                                       for cost-tracking / future cloud-burst.
+//   - "external_monthly_budget_usd" number informational — not enforced yet.
+//
+// Other subsystems own their own keys (autopilot, integrations, etc.) —
+// add them to this list when introducing a new one so the contract stays
+// discoverable.
 type WorkspaceResponse struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`

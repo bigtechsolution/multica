@@ -280,9 +280,14 @@ func (s *AutopilotService) dispatchRunOnly(ctx context.Context, ap db.Autopilot,
 		return &errDispatchSkipped{reason: formatAdmissionReason(ap, reason)}
 	}
 
+	decision, err := s.TaskSvc.resolveDecision(ctx, agent, nil)
+	if err != nil {
+		return fmt.Errorf("resolve llm policy: %w", err)
+	}
+
 	task, err := s.Queries.CreateAutopilotTask(ctx, db.CreateAutopilotTaskParams{
 		AgentID:        agent.ID,
-		RuntimeID:      agent.RuntimeID,
+		RuntimeID:      decision.RuntimeID,
 		Priority:       0,
 		AutopilotRunID: run.ID,
 		// Snapshot the autopilot title so task rows self-describe later
@@ -292,6 +297,7 @@ func (s *AutopilotService) dispatchRunOnly(ctx context.Context, ap db.Autopilot,
 			String: truncateForSummary(ap.Title, triggerSummaryMaxLen),
 			Valid:  ap.Title != "",
 		},
+		RoutingDecision: decision.Marshal(),
 	})
 	if err != nil {
 		return fmt.Errorf("create autopilot task: %w", err)
