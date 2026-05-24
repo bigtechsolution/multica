@@ -317,6 +317,70 @@ func TestResolver(t *testing.T) {
 		mustEq(t, got.Layer, LayerL2)
 		mustEq(t, got.Provider, "opencode")
 	})
+
+	t.Run("L2 swap clears Model so daemon falls back to runtime default", func(t *testing.T) {
+		// @diagrammer setup: opencode runtime + Qwen model. Policy
+		// cloud_first → swap to claude. Old behaviour passed the Qwen
+		// model name to Claude CLI → 400 in the wild (MUL-10 smoke).
+		q := mkQ(opencodeRT)
+		agent := db.Agent{
+			ID: mkUUID(0x77), WorkspaceID: mkUUID(0x99),
+			RuntimeID: opencodeRT.ID,
+			Model:     pgtype.Text{String: "vllm-local/qwen3.6-coder", Valid: true},
+		}
+		ws := db.Workspace{ID: mkUUID(0x99), Settings: settingsJSON(t, map[string]any{"llm_policy": "cloud_first"})}
+		d, err := New(nil).withQ(q).Resolve(context.Background(), ws, agent, nil)
+		mustNoErr(t, err)
+		mustEq(t, d.Reason, ReasonSwappedByPolicy)
+		mustEq(t, d.Provider, "claude")
+		if d.Model == nil {
+			t.Fatal("Model should be non-nil on class swap (explicit override)")
+		}
+		if *d.Model != "" {
+			t.Fatalf("Model should be empty string for runtime-default, got %q", *d.Model)
+		}
+	})
+
+	t.Run("L1 default leaves Model nil (passthrough)", func(t *testing.T) {
+		q := mkQ(opencodeRT)
+		agent := db.Agent{
+			ID: mkUUID(0x77), WorkspaceID: mkUUID(0x99),
+			RuntimeID: opencodeRT.ID,
+			Model:     pgtype.Text{String: "vllm-local/qwen3.6-coder", Valid: true},
+		}
+		d, err := New(nil).withQ(q).Resolve(context.Background(), db.Workspace{ID: mkUUID(0x99)}, agent, nil)
+		mustNoErr(t, err)
+		mustEq(t, d.Layer, LayerL1)
+		if d.Model != nil {
+			t.Fatalf("L1 no-op should leave Model nil, got %v", *d.Model)
+		}
+	})
+
+	t.Run("Pair-swap copies paired agent Model", func(t *testing.T) {
+		pairID := mkUUID(0x55)
+		pair := db.Agent{
+			ID: pairID, WorkspaceID: mkUUID(0x99), RuntimeID: opencodeRT.ID,
+			Model: pgtype.Text{String: "vllm-local/qwen3.6-coder", Valid: true},
+		}
+		meta := []byte(`{"routing_pair_id":"` + uuidString(pairID) + `"}`)
+		agent := db.Agent{
+			ID: mkUUID(0x77), WorkspaceID: mkUUID(0x99), RuntimeID: claudeRT.ID,
+			McpConfig: []byte(`{"mcpServers":{"github":{}}}`),
+			Metadata:  meta,
+			Model:     pgtype.Text{String: "claude-sonnet-4-5", Valid: true},
+		}
+		q := &stubQ{
+			runtimes: map[string]db.AgentRuntime{uuidStr(claudeRT.ID): claudeRT, uuidStr(opencodeRT.ID): opencodeRT},
+			agents:   map[string]db.Agent{uuidStr(pairID): pair},
+		}
+		ws := db.Workspace{ID: mkUUID(0x99), Settings: settingsJSON(t, map[string]any{"llm_policy": "local_only"})}
+		d, err := New(nil).withQ(q).Resolve(context.Background(), ws, agent, nil)
+		mustNoErr(t, err)
+		mustEq(t, d.Reason, ReasonSwappedViaPair)
+		if d.Model == nil || *d.Model != "vllm-local/qwen3.6-coder" {
+			t.Fatalf("Pair-swap should carry paired Model, got %v", d.Model)
+		}
+	})
 }
 
 func TestHasMCPConfig(t *testing.T) {

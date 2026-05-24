@@ -77,6 +77,15 @@ type Decision struct {
 	// workspace policy enabled redaction. Daemon / server-side handlers use
 	// this to gate the redact.Prompt pass on issue/comment responses.
 	RedactExternal bool `json:"redact_external"`
+
+	// Model, when non-nil, overrides agent.Model for this dispatch. The
+	// resolver sets it to ptr("") whenever a class-change swap happened
+	// — passing a Qwen model name to Claude CLI (or vice versa) fails
+	// immediately, so we instead force the runtime's default. For
+	// pair-swap the resolver fills in the paired agent's own Model.
+	// nil = honour agent.Model. The daemon's claim handler applies this
+	// override on the response's AgentData.Model field.
+	Model *string `json:"model,omitempty"`
 }
 
 // Marshal returns the JSONB bytes to stash in agent_task_queue.routing_decision.

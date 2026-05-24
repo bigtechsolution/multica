@@ -157,6 +157,12 @@ func (r *Resolver) swap(
 	out.Provider = alt.Provider
 	out.Reason = ReasonSwappedByPolicy
 	out.RedactExternal = Classify(alt.Provider) == ClassExternal && derefBoolDefault(settings.RedactBeforeExternal, true)
+	// Class changed — agent.Model belongs to the original provider's CLI
+	// and is meaningless (often fatal) to the new one. Force runtime
+	// default by emitting an explicit empty-string override; the daemon
+	// recognises the empty string as "skip --model on the CLI invocation".
+	empty := ""
+	out.Model = &empty
 	return out, nil
 }
 
@@ -209,6 +215,16 @@ func (r *Resolver) swapViaPair(
 	out.Provider = pairedRuntime.Provider
 	out.Reason = ReasonSwappedViaPair
 	out.RedactExternal = Classify(pairedRuntime.Provider) == ClassExternal && derefBoolDefault(settings.RedactBeforeExternal, true)
+	// Pair has its own (correct) model for its native runtime — copy
+	// it over so the daemon uses the pair's CLI default model bindings
+	// instead of inheriting the MCP-locked original's wrong model.
+	if paired.Model.Valid {
+		pm := paired.Model.String
+		out.Model = &pm
+	} else {
+		empty := ""
+		out.Model = &empty
+	}
 	return out, nil
 }
 
