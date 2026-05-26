@@ -36,6 +36,7 @@ import { Switch } from "@multica/ui/components/ui/switch";
 import { ContentEditor, type ContentEditorRef, TitleEditor, useFileDropZone, FileDropOverlay } from "../editor";
 import { StatusIcon, StatusPicker, PriorityPicker, AssigneePicker, StartDatePicker, DueDatePicker } from "../issues/components";
 import { BacklogAgentHintContent } from "../issues/components/backlog-agent-hint-dialog";
+import { TemplatePicker } from "./template-picker";
 import { ProjectPicker } from "../projects/components/project-picker";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -442,6 +443,31 @@ export function ManualCreatePanel({
                   <TooltipContent side="bottom">{t(($) => $.common.close)}</TooltipContent>
                 </Tooltip>
               </div>
+            </div>
+
+            {/* Template picker (Phase A item 4) — drop above title so
+                a pick visually preceeds the form it prefills. Empty
+                template list ⇒ component renders nothing, no chrome
+                pollution. */}
+            <div className="px-5 pb-1 shrink-0">
+              <TemplatePicker
+                onPick={(tpl) => {
+                  setDraft({
+                    title: tpl.title,
+                    description: tpl.description,
+                    priority: (tpl.priority ?? "none") as IssuePriority,
+                  });
+                  setTitle(tpl.title);
+                  setPriority((tpl.priority ?? "none") as IssuePriority);
+                  if (tpl.assignee_type && tpl.assignee_id) {
+                    setAssigneeType(tpl.assignee_type as IssueAssigneeType);
+                    setAssigneeId(tpl.assignee_id);
+                  }
+                  // Remount TitleEditor + ContentEditor so their
+                  // uncontrolled defaultValue picks up the new draft.
+                  setFormResetKey((k) => k + 1);
+                }}
+              />
             </div>
 
             {/* Title */}
