@@ -44,6 +44,10 @@ export const issueKeys = {
     [...issueKeys.all(wsId), "detail", id] as const,
   children: (wsId: string, id: string) =>
     [...issueKeys.all(wsId), "children", id] as const,
+  /** Full descendant tree of an issue, keyed by root + max_depth so tree
+   *  views that ask for different depths cache independently. */
+  descendants: (wsId: string, id: string, maxDepth: number) =>
+    [...issueKeys.all(wsId), "descendants", id, maxDepth] as const,
   childProgress: (wsId: string) =>
     [...issueKeys.all(wsId), "child-progress"] as const,
   /** Full-issue timeline (single TanStack Query, no cursor). */
@@ -215,6 +219,30 @@ export function issueListOptions(wsId: string) {
     queryKey: issueKeys.list(wsId),
     queryFn: () => fetchFirstPages(),
     select: flattenIssueBuckets,
+  });
+}
+
+/**
+ * Full descendant tree of an issue. Caps depth at 10 by default; pass a
+ * smaller value for a shallower peek. Returns parallel arrays (issues,
+ * depths) — `depths[i]` is the tree depth of `issues[i]` from the root.
+ * Caller assembles the visual tree from the flat list.
+ *
+ * The WS updaters on issue:created/updated already invalidate the
+ * `children(...)` key for the affected parent, but NOT this `descendants`
+ * key. Tree views that want live updates should additionally invalidate
+ * `issueKeys.descendants(...)` in their own WS listener (or call
+ * `qc.invalidateQueries({ queryKey: [...issueKeys.all(wsId), "descendants"] })`
+ * on any issue:* event for simplicity).
+ */
+export function issueDescendantsOptions(
+  wsId: string,
+  rootId: string,
+  maxDepth: number = 10,
+) {
+  return queryOptions({
+    queryKey: issueKeys.descendants(wsId, rootId, maxDepth),
+    queryFn: () => api.listIssueDescendants(rootId, { maxDepth }),
   });
 }
 

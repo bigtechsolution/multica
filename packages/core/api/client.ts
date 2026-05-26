@@ -115,6 +115,7 @@ import {
   AgentTemplateSummaryListSchema,
   AttachmentResponseSchema,
   ChildIssuesResponseSchema,
+  IssueDescendantsResponseSchema,
   CommentsListSchema,
   CloudRuntimeNodeListSchema,
   CloudRuntimeNodeSchema,
@@ -545,6 +546,20 @@ export class ApiClient {
     return parseWithFallback(raw, ChildIssuesResponseSchema, { issues: [] }, {
       endpoint: "GET /api/issues/:id/children",
     });
+  }
+
+  async listIssueDescendants(
+    id: string,
+    opts?: { maxDepth?: number },
+  ): Promise<{ issues: Issue[]; depths: number[] }> {
+    const q = opts?.maxDepth ? `?max_depth=${opts.maxDepth}` : "";
+    const raw = await this.fetch<unknown>(`/api/issues/${id}/descendants${q}`);
+    return parseWithFallback(
+      raw,
+      IssueDescendantsResponseSchema,
+      { issues: [], depths: [] },
+      { endpoint: "GET /api/issues/:id/descendants" },
+    );
   }
 
   async getChildIssueProgress(): Promise<{ progress: { parent_issue_id: string; total: number; done: number }[] }> {

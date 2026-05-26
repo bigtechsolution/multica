@@ -238,6 +238,39 @@ SELECT * FROM issue
 WHERE parent_issue_id = $1
 ORDER BY position ASC, created_at DESC;
 
+-- name: ListDescendantIssues :many
+-- Recursive descent from a root issue down through parent_issue_id, capped at
+-- depth $3 (default 10 in caller — matches the cycle-detection ceiling in
+-- handler/issue.go). One round-trip vs N+1 from the frontend tree expander.
+--
+-- The depth column lets the client render indented tree rows without a
+-- second pass to compute level. Root itself is NOT included (caller
+-- already has it); only descendants. ORDER BY (depth, position, created_at)
+-- so siblings stay together and the natural tree-walk order is preserved.
+--
+-- workspace_id filter is the tenancy gate. Without it a crafted parent
+-- chain could leak rows from another workspace via the recursive step;
+-- with it, every level re-asserts the same workspace.
+WITH RECURSIVE descendants AS (
+    SELECT i.*, 1::int AS depth
+    FROM issue i
+    WHERE i.parent_issue_id = sqlc.arg('root_id')
+      AND i.workspace_id = sqlc.arg('workspace_id')
+    UNION ALL
+    SELECT i.*, d.depth + 1
+    FROM issue i
+    JOIN descendants d ON i.parent_issue_id = d.id
+    WHERE i.workspace_id = sqlc.arg('workspace_id')
+      AND d.depth < sqlc.arg('max_depth')::int
+)
+SELECT id, workspace_id, title, description, status, priority,
+    assignee_type, assignee_id, creator_type, creator_id,
+    parent_issue_id, acceptance_criteria, context_refs, position,
+    due_date, created_at, updated_at, number, project_id, origin_type,
+    origin_id, first_executed_at, start_date, metadata, depth
+FROM descendants
+ORDER BY depth ASC, position ASC, created_at ASC;
+
 -- name: GetIssueByOrigin :one
 -- Finds the issue stamped with a specific (origin_type, origin_id) pair.
 -- Used by quick-create completion to deterministically locate the issue

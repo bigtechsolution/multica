@@ -78,10 +78,12 @@
     "tooltip_board": "Board view",
     "tooltip_list": "List view",
     "tooltip_gantt": "Gantt view",
+    "tooltip_tree": "Tree view",
     "section": "View",
     "board": "Board",
     "list": "List",
-    "gantt": "Gantt"
+    "gantt": "Gantt",
+    "tree": "Tree"
   },
   "gantt": {
     "header_issue": "Issue",

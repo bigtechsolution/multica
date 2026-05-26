@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChartGantt,
+  Network,
   Check,
   ChevronDown,
   CircleDot,
@@ -496,9 +497,11 @@ function LabelSubContent({
 export function IssuesHeader({
   scopedIssues,
   allowGantt = false,
+  allowTree = false,
 }: {
   scopedIssues: Issue[];
   allowGantt?: boolean;
+  allowTree?: boolean;
 }) {
   const { t } = useT("issues");
   const scope = useIssuesScopeStore((s) => s.scope);
@@ -567,7 +570,7 @@ export function IssuesHeader({
           onToggle={toggleAgentRunningFilter}
           scopedIssueIds={scopedIssueIds}
         />
-        <IssueDisplayControls scopedIssues={scopedIssues} allowGantt={allowGantt} />
+        <IssueDisplayControls scopedIssues={scopedIssues} allowGantt={allowGantt} allowTree={allowTree} />
       </div>
     </div>
   );
@@ -577,6 +580,7 @@ export function IssueDisplayControls({
   scopedIssues,
   hideViewToggle = false,
   allowGantt = false,
+  allowTree = false,
 }: {
   scopedIssues: Issue[];
   hideViewToggle?: boolean;
@@ -584,6 +588,11 @@ export function IssueDisplayControls({
   // /my-issues, actor panel) ignore viewMode === "gantt" and would silently
   // fall back to List if the option were exposed there. Keep Gantt opt-in.
   allowGantt?: boolean;
+  // Same opt-in pattern as allowGantt: only Project Detail renders
+  // <TreeView> (the hierarchy makes sense within a project scope, less so
+  // at the workspace level). Other surfaces leave this default false so
+  // the dropdown stays focused on Board/List.
+  allowTree?: boolean;
 }) {
   const { t } = useT("issues");
   const viewMode = useViewStore((s) => s.viewMode);
@@ -1000,6 +1009,12 @@ export function IssueDisplayControls({
                   <DropdownMenuItem onClick={() => act.setViewMode("gantt")}>
                     <ChartGantt />
                     {t(($) => $.view.gantt)}
+                  </DropdownMenuItem>
+                )}
+                {allowTree && (
+                  <DropdownMenuItem onClick={() => act.setViewMode("tree")}>
+                    <Network />
+                    {t(($) => $.view.tree)}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuGroup>

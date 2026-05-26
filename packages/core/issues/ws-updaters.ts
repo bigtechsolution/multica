@@ -29,6 +29,11 @@ export function onIssueCreated(
   if (issue.parent_issue_id) {
     qc.invalidateQueries({ queryKey: issueKeys.children(wsId, issue.parent_issue_id) });
     qc.invalidateQueries({ queryKey: issueKeys.childProgress(wsId) });
+    // Tree view (Phase A): the new issue lives somewhere in some root's
+    // descendant tree. Cheapest correct thing is to bust every mounted
+    // descendants query and let them refetch — there are at most a
+    // handful per session (one per open issue-detail tab).
+    qc.invalidateQueries({ queryKey: [...issueKeys.all(wsId), "descendants"] });
   }
 }
 
@@ -85,6 +90,14 @@ export function onIssueUpdated(
     if (issue.status !== undefined || issue.parent_issue_id !== undefined) {
       qc.invalidateQueries({ queryKey: issueKeys.childProgress(wsId) });
     }
+  }
+  // Tree view (Phase A): structural changes (parent reassignment) or
+  // visible-field changes (status/title/assignee) must refresh any
+  // mounted descendants query so the tree re-renders. Cheap prefix
+  // invalidation matches every root's tree; refetch only fires for
+  // queries that are actually subscribed (i.e. visible).
+  if (parentChanged || issue.status !== undefined || issue.title !== undefined) {
+    qc.invalidateQueries({ queryKey: [...issueKeys.all(wsId), "descendants"] });
   }
 }
 

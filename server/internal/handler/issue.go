@@ -1368,6 +1368,98 @@ func (h *Handler) ListChildIssues(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// descendantsMaxDepthDefault matches the cycle-detection ceiling in the
+// parent-pointer write path (UpdateIssue / CreateIssue). Frontend never asks
+// for more than this; the SQL CTE re-asserts it as a hard cap so a buggy
+// client can't blow up Postgres recursion depth.
+const descendantsMaxDepthDefault = 10
+
+// ListIssueDescendants returns the full descendant tree of an issue in one
+// round-trip — flat list rows with a `depth` column so the client can render
+// indentation without a second pass. Workspace-scoped: every recursive step
+// re-asserts the workspace gate so a crafted parent_issue_id chain can't
+// leak rows from another workspace.
+//
+// Query param `max_depth` (1-10) overrides the default — useful when the
+// tree view only wants two levels for a peek. Out-of-range values clamp to
+// [1, 10] silently so a stale client can't 400.
+//
+// Response shape:
+//
+//	{ "issues": [ IssueResponse, ... ], "depths": [ <int>, ... ] }
+//
+// `depths[i]` is the depth of `issues[i]` from the root (root = 0, direct
+// child = 1, grandchild = 2, ...). Parallel arrays keep the IssueResponse
+// JSON shape identical to the rest of the API so the same client-side
+// renderer works for both list and tree contexts.
+func (h *Handler) ListIssueDescendants(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	issue, ok := h.loadIssueForUser(w, r, id)
+	if !ok {
+		return
+	}
+
+	maxDepth := int32(descendantsMaxDepthDefault)
+	if raw := strings.TrimSpace(r.URL.Query().Get("max_depth")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil {
+			if v < 1 {
+				v = 1
+			}
+			if v > descendantsMaxDepthDefault {
+				v = descendantsMaxDepthDefault
+			}
+			maxDepth = int32(v)
+		}
+	}
+
+	rows, err := h.Queries.ListDescendantIssues(r.Context(), db.ListDescendantIssuesParams{
+		RootID:      issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+		MaxDepth:    maxDepth,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list issue descendants")
+		return
+	}
+	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
+	issuesResp := make([]IssueResponse, len(rows))
+	depths := make([]int32, len(rows))
+	for i, row := range rows {
+		issuesResp[i] = issueToResponse(descendantRowToIssue(row), prefix)
+		depths[i] = row.Depth
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"issues": issuesResp,
+		"depths": depths,
+	})
+}
+
+// descendantRowToIssue maps the recursive query's row type to db.Issue so
+// the existing issueToResponse renderer can handle it. The CTE projects the
+// same columns in the same order; this is a structural copy.
+func descendantRowToIssue(r db.ListDescendantIssuesRow) db.Issue {
+	return db.Issue{
+		ID: r.ID, WorkspaceID: r.WorkspaceID, Title: r.Title,
+		Description: r.Description, Status: r.Status, Priority: r.Priority,
+		AssigneeType: r.AssigneeType, AssigneeID: r.AssigneeID,
+		CreatorType: r.CreatorType, CreatorID: r.CreatorID,
+		ParentIssueID:      r.ParentIssueID,
+		AcceptanceCriteria: r.AcceptanceCriteria,
+		ContextRefs:        r.ContextRefs,
+		Position:           r.Position,
+		DueDate:            r.DueDate,
+		CreatedAt:          r.CreatedAt,
+		UpdatedAt:          r.UpdatedAt,
+		Number:             r.Number,
+		ProjectID:          r.ProjectID,
+		OriginType:         r.OriginType,
+		OriginID:           r.OriginID,
+		FirstExecutedAt:    r.FirstExecutedAt,
+		StartDate:          r.StartDate,
+		Metadata:           r.Metadata,
+	}
+}
+
 func (h *Handler) ChildIssueProgress(w http.ResponseWriter, r *http.Request) {
 	wsID := h.resolveWorkspaceID(r)
 	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace_id")
