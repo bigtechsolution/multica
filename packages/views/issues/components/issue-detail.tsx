@@ -47,6 +47,7 @@ import { STATUS_CONFIG, PRIORITY_CONFIG } from "@multica/core/issues/config";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { toast } from "sonner";
 import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, StartDatePicker, DueDatePicker, AssigneePicker, LabelPicker } from ".";
+import { IssueTreeNode, assembleIssueTree } from "./issue-tree-node";
 import { IssueActionsDropdown, useIssueActions } from "../actions";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { CommentCard } from "./comment-card";
@@ -62,7 +63,7 @@ import { useAuthStore } from "@multica/core/auth";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { issueListOptions, issueDetailOptions, childIssuesOptions, issueUsageOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
+import { issueListOptions, issueDetailOptions, childIssuesOptions, issueDescendantsOptions, issueUsageOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
@@ -972,6 +973,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     ...childIssuesOptions(wsId, id),
     enabled: !!issue,
   });
+  // Phase A: full descendant tree for the hierarchy view. Cheap because
+  // the recursive CTE is one round trip; cached separately from the
+  // direct-children query so flat-list callers (counter, batch toolbar)
+  // don't pay the extra rows. Empty by default until we've loaded; the
+  // existing flat list keeps rendering during the brief load gap.
+  const { data: descendantsData } = useQuery({
+    ...issueDescendantsOptions(wsId, id),
+    enabled: !!issue && childIssues.length > 0,
+  });
   // Parent's children — used to render the "x/y" progress next to the
   // "Sub-issue of …" breadcrumb under the title.
   const { data: parentChildIssues = [] } = useQuery({
@@ -1823,14 +1833,32 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                     selections exist, instead of as a far-away fixed bar. */}
                 <BatchActionToolbar placement="inline" />
 
-                {/* List */}
-                {!subIssuesCollapsed && (
-                  <div className="overflow-hidden rounded-lg border bg-card/30 divide-y divide-border/60">
-                    {childIssues.map((child) => (
-                      <SubIssueRow key={child.id} child={child} />
-                    ))}
-                  </div>
-                )}
+                {/* Tree view (Phase A item 1) — descendants endpoint
+                    feeds a recursive IssueTreeNode renderer. Falls back
+                    to the flat SubIssueRow list while the descendants
+                    query is in flight or if it returned empty (server
+                    downgrade etc.). Tree is preferred when present even
+                    for single-level hierarchies — same row shape, with
+                    expand affordances ready when grandchildren land. */}
+                {!subIssuesCollapsed && (() => {
+                  if (issue && descendantsData && descendantsData.issues.length > 0) {
+                    const tree = assembleIssueTree(issue, descendantsData.issues, descendantsData.depths);
+                    return (
+                      <div className="overflow-hidden rounded-lg border bg-card/30">
+                        {tree.children.map((child) => (
+                          <IssueTreeNode key={child.issue.id} node={child} />
+                        ))}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="overflow-hidden rounded-lg border bg-card/30 divide-y divide-border/60">
+                      {childIssues.map((child) => (
+                        <SubIssueRow key={child.id} child={child} />
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}

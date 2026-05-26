@@ -673,6 +673,120 @@ func (q *Queries) ListChildIssues(ctx context.Context, parentIssueID pgtype.UUID
 	return items, nil
 }
 
+const listDescendantIssues = `-- name: ListDescendantIssues :many
+WITH RECURSIVE descendants AS (
+    SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_type, i.assignee_id, i.creator_type, i.creator_id, i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.origin_type, i.origin_id, i.first_executed_at, i.start_date, i.metadata, 1::int AS depth
+    FROM issue i
+    WHERE i.parent_issue_id = $1
+      AND i.workspace_id = $2
+    UNION ALL
+    SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_type, i.assignee_id, i.creator_type, i.creator_id, i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.origin_type, i.origin_id, i.first_executed_at, i.start_date, i.metadata, d.depth + 1
+    FROM issue i
+    JOIN descendants d ON i.parent_issue_id = d.id
+    WHERE i.workspace_id = $2
+      AND d.depth < $3::int
+)
+SELECT id, workspace_id, title, description, status, priority,
+    assignee_type, assignee_id, creator_type, creator_id,
+    parent_issue_id, acceptance_criteria, context_refs, position,
+    due_date, created_at, updated_at, number, project_id, origin_type,
+    origin_id, first_executed_at, start_date, metadata, depth
+FROM descendants
+ORDER BY depth ASC, position ASC, created_at ASC
+`
+
+type ListDescendantIssuesParams struct {
+	RootID      pgtype.UUID `json:"root_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	MaxDepth    int32       `json:"max_depth"`
+}
+
+type ListDescendantIssuesRow struct {
+	ID                 pgtype.UUID        `json:"id"`
+	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
+	Title              string             `json:"title"`
+	Description        pgtype.Text        `json:"description"`
+	Status             string             `json:"status"`
+	Priority           string             `json:"priority"`
+	AssigneeType       pgtype.Text        `json:"assignee_type"`
+	AssigneeID         pgtype.UUID        `json:"assignee_id"`
+	CreatorType        string             `json:"creator_type"`
+	CreatorID          pgtype.UUID        `json:"creator_id"`
+	ParentIssueID      pgtype.UUID        `json:"parent_issue_id"`
+	AcceptanceCriteria []byte             `json:"acceptance_criteria"`
+	ContextRefs        []byte             `json:"context_refs"`
+	Position           float64            `json:"position"`
+	DueDate            pgtype.Timestamptz `json:"due_date"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	Number             int32              `json:"number"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	OriginType         pgtype.Text        `json:"origin_type"`
+	OriginID           pgtype.UUID        `json:"origin_id"`
+	FirstExecutedAt    pgtype.Timestamptz `json:"first_executed_at"`
+	StartDate          pgtype.Timestamptz `json:"start_date"`
+	Metadata           []byte             `json:"metadata"`
+	Depth              int32              `json:"depth"`
+}
+
+// Recursive descent from a root issue down through parent_issue_id, capped at
+// depth $3 (default 10 in caller — matches the cycle-detection ceiling in
+// handler/issue.go). One round-trip vs N+1 from the frontend tree expander.
+//
+// The depth column lets the client render indented tree rows without a
+// second pass to compute level. Root itself is NOT included (caller
+// already has it); only descendants. ORDER BY (depth, position, created_at)
+// so siblings stay together and the natural tree-walk order is preserved.
+//
+// workspace_id filter is the tenancy gate. Without it a crafted parent
+// chain could leak rows from another workspace via the recursive step;
+// with it, every level re-asserts the same workspace.
+func (q *Queries) ListDescendantIssues(ctx context.Context, arg ListDescendantIssuesParams) ([]ListDescendantIssuesRow, error) {
+	rows, err := q.db.Query(ctx, listDescendantIssues, arg.RootID, arg.WorkspaceID, arg.MaxDepth)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDescendantIssuesRow{}
+	for rows.Next() {
+		var i ListDescendantIssuesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.AssigneeType,
+			&i.AssigneeID,
+			&i.CreatorType,
+			&i.CreatorID,
+			&i.ParentIssueID,
+			&i.AcceptanceCriteria,
+			&i.ContextRefs,
+			&i.Position,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Number,
+			&i.ProjectID,
+			&i.OriginType,
+			&i.OriginID,
+			&i.FirstExecutedAt,
+			&i.StartDate,
+			&i.Metadata,
+			&i.Depth,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssues = `-- name: ListIssues :many
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,

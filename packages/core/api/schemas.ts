@@ -206,6 +206,16 @@ export const ChildIssuesResponseSchema = z.object({
   issues: z.array(IssueSchema).default([]),
 }).loose();
 
+// Parallel-array shape: depths[i] is the tree depth of issues[i] from the
+// root issue (root = 0, direct child = 1, grandchild = 2, …). Server caps
+// depth at 10 to match the parent-pointer cycle-detection ceiling. Default
+// empty arrays so a missing field on a future server downgrade still
+// renders an empty tree instead of throwing.
+export const IssueDescendantsResponseSchema = z.object({
+  issues: z.array(IssueSchema).default([]),
+  depths: z.array(z.number().int().nonnegative()).default([]),
+}).loose();
+
 export const CloudRuntimeNodeSchema = z.object({
   id: z.string(),
   owner_id: z.string(),
