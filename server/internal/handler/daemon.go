@@ -1124,6 +1124,22 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			Model:         agent.Model.String,
 			ThinkingLevel: agent.ThinkingLevel.String,
 		}
+		// L2/L3 routing may have swapped the runtime to a different
+		// provider class. The agent's persisted model belongs to its
+		// original class (e.g. "vllm-local/qwen3.6-coder" for @diagrammer)
+		// and is meaningless to the swap target. The resolver records
+		// the right value (empty string = "use runtime default", or the
+		// paired agent's own model) in routing_decision.model — apply
+		// it here so the daemon never sees the original-class model on
+		// a swapped task.
+		if len(task.RoutingDecision) > 0 {
+			var decoded struct {
+				Model *string `json:"model"`
+			}
+			if err := json.Unmarshal(task.RoutingDecision, &decoded); err == nil && decoded.Model != nil {
+				resp.Agent.Model = *decoded.Model
+			}
+		}
 	}
 
 	// Resolve the runtime owner's profile description so the daemon can

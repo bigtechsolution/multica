@@ -16,7 +16,7 @@ UPDATE agent_task_queue
 SET status = 'cancelled', completed_at = now()
 WHERE (runtime_id = ANY($1::uuid[]) OR agent_id = ANY($2::uuid[]))
   AND status IN ('queued', 'dispatched', 'running')
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, routing_decision
 `
 
 type CancelAgentTasksByRuntimeOrAgentParams struct {
@@ -73,6 +73,7 @@ func (q *Queries) CancelAgentTasksByRuntimeOrAgent(ctx context.Context, arg Canc
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
 			&i.IsLeaderTask,
+			&i.RoutingDecision,
 		); err != nil {
 			return nil, err
 		}
@@ -157,7 +158,7 @@ WHERE status IN ('dispatched', 'running')
   AND runtime_id IN (
     SELECT id FROM agent_runtime WHERE status = 'offline'
   )
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, routing_decision
 `
 
 // Marks dispatched/running tasks as failed when their runtime is offline.
@@ -197,6 +198,7 @@ func (q *Queries) FailTasksForOfflineRuntimes(ctx context.Context) ([]AgentTaskQ
 			&i.TriggerSummary,
 			&i.ForceFreshSession,
 			&i.IsLeaderTask,
+			&i.RoutingDecision,
 		); err != nil {
 			return nil, err
 		}
@@ -270,6 +272,48 @@ func (q *Queries) FindLegacyRuntimesByDaemonID(ctx context.Context, arg FindLega
 		return nil, err
 	}
 	return items, nil
+}
+
+const findOnlineRuntimeByProvider = `-- name: FindOnlineRuntimeByProvider :one
+SELECT id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, created_at, updated_at, owner_id, legacy_daemon_id, visibility FROM agent_runtime
+WHERE workspace_id = $1
+  AND status = 'online'
+  AND provider = ANY($2::text[])
+ORDER BY created_at ASC
+LIMIT 1
+`
+
+type FindOnlineRuntimeByProviderParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Providers   []string    `json:"providers"`
+}
+
+// Picks an online runtime in the workspace whose provider is in the supplied
+// list. Used by the llmpolicy resolver to swap an agent's L1-default runtime
+// to a same-workspace alternative (e.g. claude → opencode) at dispatch time.
+// Returns the longest-lived match for deterministic selection across
+// equivalent online runtimes.
+func (q *Queries) FindOnlineRuntimeByProvider(ctx context.Context, arg FindOnlineRuntimeByProviderParams) (AgentRuntime, error) {
+	row := q.db.QueryRow(ctx, findOnlineRuntimeByProvider, arg.WorkspaceID, arg.Providers)
+	var i AgentRuntime
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.DaemonID,
+		&i.Name,
+		&i.RuntimeMode,
+		&i.Provider,
+		&i.Status,
+		&i.DeviceInfo,
+		&i.Metadata,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.OwnerID,
+		&i.LegacyDaemonID,
+		&i.Visibility,
+	)
+	return i, err
 }
 
 const forceOfflineRuntimesByIDs = `-- name: ForceOfflineRuntimesByIDs :many

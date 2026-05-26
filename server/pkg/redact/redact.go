@@ -95,3 +95,60 @@ func Text(s string) string {
 
 	return s
 }
+
+// PromptContext carries the workspace-scoped knobs that Prompt uses to
+// mask things only the resolver knows about (the client name, the repo
+// paths it owns). Empty strings/slices are no-ops.
+type PromptContext struct {
+	WorkspaceName string
+	RepoPaths     []string
+}
+
+// awsAccountIDRegex matches a 12-digit AWS account ID near a contextual
+// keyword. Narrow on purpose — bare 12-digit numbers in code (timestamps,
+// IDs, ports) would false-positive otherwise.
+var awsAccountIDRegex = regexp.MustCompile(`(?i)\baccount[\s_\-]*(?:id|number|num|#)?\s*[:=]?\s*(\d{12})\b`)
+
+// ipv4Regex matches non-loopback IPv4 addresses. Loopback (127.x.x.x) is
+// preserved to avoid masking local-only debugging breadcrumbs the LLM
+// might find genuinely useful.
+var ipv4Regex = regexp.MustCompile(`\b(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}\b`)
+
+// Prompt layers Text() with workspace-scoped masks. Use this on any string
+// that is about to cross into an external LLM via the daemon's CLI tool-call
+// path (issue title/description, comment body). For credentials-only
+// redaction on already-stored agent output, prefer Text().
+func Prompt(s string, ctx PromptContext) string {
+	// Workspace-scoped masks first — replacement makes downstream regex
+	// matching cleaner (less raw text to inspect).
+	if ctx.WorkspaceName != "" {
+		s = strings.ReplaceAll(s, ctx.WorkspaceName, "[REDACTED WORKSPACE]")
+	}
+	for _, p := range ctx.RepoPaths {
+		if p == "" {
+			continue
+		}
+		s = strings.ReplaceAll(s, p, "[REDACTED REPO]")
+	}
+
+	// AWS account IDs near contextual keywords. Replace just the 12-digit
+	// group so the surrounding "account:" cue stays readable.
+	s = awsAccountIDRegex.ReplaceAllStringFunc(s, func(match string) string {
+		groups := awsAccountIDRegex.FindStringSubmatch(match)
+		if len(groups) < 2 {
+			return match
+		}
+		return strings.Replace(match, groups[1], "[REDACTED ACCOUNT]", 1)
+	})
+
+	// Non-loopback IPv4. Conservative: drop only if the address is not 127.*.
+	s = ipv4Regex.ReplaceAllStringFunc(s, func(ip string) string {
+		if strings.HasPrefix(ip, "127.") {
+			return ip
+		}
+		return "[REDACTED IP]"
+	})
+
+	// Finally the credential/path patterns.
+	return Text(s)
+}

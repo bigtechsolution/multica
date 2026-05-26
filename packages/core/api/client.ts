@@ -4,6 +4,8 @@ import type {
   UpdateIssueRequest,
   GroupedIssuesResponse,
   ListIssuesResponse,
+  ListEstimatesParams,
+  ListEstimatesResponse,
   SearchIssuesResponse,
   SearchProjectsResponse,
   UpdateMeRequest,
@@ -132,6 +134,7 @@ import {
   EMPTY_CLOUD_RUNTIME_NODE_LIST,
   EMPTY_CREATE_AGENT_FROM_TEMPLATE_RESPONSE,
   EMPTY_GROUPED_ISSUES_RESPONSE,
+  EMPTY_LIST_ESTIMATES_RESPONSE,
   EMPTY_LIST_ISSUES_RESPONSE,
   EMPTY_SQUAD_MEMBER_STATUS_LIST,
   EMPTY_TIMELINE_ENTRIES,
@@ -139,6 +142,7 @@ import {
   EMPTY_LIST_WEBHOOK_DELIVERIES_RESPONSE,
   EMPTY_WEBHOOK_DELIVERY,
   GroupedIssuesResponseSchema,
+  ListEstimatesResponseSchema,
   ListIssuesResponseSchema,
   ListWebhookDeliveriesResponseSchema,
   RuntimeHourlyActivityListSchema,
@@ -356,6 +360,22 @@ export class ApiClient {
     });
   }
 
+  // Email + password sign-up / sign-in. Same LoginResponse shape as
+  // verifyCode so the auth store can treat both flows identically.
+  async register(email: string, password: string, name?: string): Promise<LoginResponse> {
+    return this.fetch("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, name: name ?? "" }),
+    });
+  }
+
+  async loginWithPassword(email: string, password: string): Promise<LoginResponse> {
+    return this.fetch("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  }
+
   async googleLogin(code: string, redirectUri: string): Promise<LoginResponse> {
     return this.fetch("/auth/google", {
       method: "POST",
@@ -423,6 +443,20 @@ export class ApiClient {
     });
     return parseWithFallback(raw, UserSchema, EMPTY_USER, {
       endpoint: "PATCH /api/me",
+    });
+  }
+
+  // Architecture cost estimates (Stage J)
+  async listEstimates(params?: ListEstimatesParams): Promise<ListEstimatesResponse> {
+    const search = new URLSearchParams();
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.offset) search.set("offset", String(params.offset));
+    if (params?.workspace_id) search.set("workspace_id", params.workspace_id);
+    const qs = search.toString();
+    const path = qs ? `/api/estimates?${qs}` : "/api/estimates";
+    const raw = await this.fetch<unknown>(path);
+    return parseWithFallback(raw, ListEstimatesResponseSchema, EMPTY_LIST_ESTIMATES_RESPONSE, {
+      endpoint: "GET /api/estimates",
     });
   }
 
@@ -592,6 +626,19 @@ export class ApiClient {
 
   async deleteIssue(id: string): Promise<void> {
     await this.fetch(`/api/issues/${id}`, { method: "DELETE" });
+  }
+
+  async setIssueMetadata(id: string, key: string, value: string | number | boolean): Promise<void> {
+    await this.fetch(`/api/issues/${id}/metadata/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    });
+  }
+
+  async deleteIssueMetadata(id: string, key: string): Promise<void> {
+    await this.fetch(`/api/issues/${id}/metadata/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    });
   }
 
   async batchUpdateIssues(issueIds: string[], updates: UpdateIssueRequest): Promise<{ updated: number }> {
@@ -1123,10 +1170,16 @@ export class ApiClient {
     });
   }
 
-  async rerunIssue(issueId: string, taskId?: string): Promise<AgentTask> {
+  async rerunIssue(
+    issueId: string,
+    opts?: { taskId?: string; llmOverride?: "local" | "cloud" | "clear" },
+  ): Promise<AgentTask> {
+    const body: Record<string, string> = {};
+    if (opts?.taskId) body.task_id = opts.taskId;
+    if (opts?.llmOverride) body.llm_override = opts.llmOverride;
     return this.fetch(`/api/issues/${issueId}/rerun`, {
       method: "POST",
-      body: JSON.stringify(taskId ? { task_id: taskId } : {}),
+      body: JSON.stringify(body),
     });
   }
 

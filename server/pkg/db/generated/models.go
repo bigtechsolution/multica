@@ -44,6 +44,8 @@ type Agent struct {
 	McpConfig          []byte             `json:"mcp_config"`
 	Model              pgtype.Text        `json:"model"`
 	ThinkingLevel      pgtype.Text        `json:"thinking_level"`
+	// Per-agent KV metadata. Recognised keys: routing_pair_id (alternate agent for MCP-locked policy swap, server/internal/llmpolicy).
+	Metadata []byte `json:"metadata"`
 }
 
 type AgentRuntime struct {
@@ -96,6 +98,25 @@ type AgentTaskQueue struct {
 	TriggerSummary    pgtype.Text        `json:"trigger_summary"`
 	ForceFreshSession bool               `json:"force_fresh_session"`
 	IsLeaderTask      bool               `json:"is_leader_task"`
+	// LLM routing decision recorded at enqueue. See server/internal/llmpolicy.
+	RoutingDecision []byte `json:"routing_decision"`
+}
+
+type ArchitectureEstimate struct {
+	ID                pgtype.UUID        `json:"id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	IssueID           pgtype.UUID        `json:"issue_id"`
+	SpecHash          string             `json:"spec_hash"`
+	SpecPath          string             `json:"spec_path"`
+	PricingSnapshotID pgtype.UUID        `json:"pricing_snapshot_id"`
+	Region            string             `json:"region"`
+	MonthlyUsd        pgtype.Numeric     `json:"monthly_usd"`
+	YearlyUsd         pgtype.Numeric     `json:"yearly_usd"`
+	Breakdown         []byte             `json:"breakdown"`
+	CostMd            string             `json:"cost_md"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	// Snapshot of agent_task_queue.routing_decision from the task that produced this estimate. Shape matches server/internal/llmpolicy.Decision.
+	RoutingDecision []byte `json:"routing_decision"`
 }
 
 type Attachment struct {
@@ -253,6 +274,13 @@ type DaemonToken struct {
 	DaemonID    string             `json:"daemon_id"`
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type FailedLoginAttempt struct {
+	ID          int64              `json:"id"`
+	Email       string             `json:"email"`
+	AttemptedAt pgtype.Timestamptz `json:"attempted_at"`
+	Reason      string             `json:"reason"`
 }
 
 type Feedback struct {
@@ -457,6 +485,16 @@ type PinnedItem struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type PricingSnapshot struct {
+	ID         pgtype.UUID        `json:"id"`
+	Region     string             `json:"region"`
+	Source     string             `json:"source"`
+	CapturedAt pgtype.Timestamptz `json:"captured_at"`
+	Services   []byte             `json:"services"`
+	RawMeta    []byte             `json:"raw_meta"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
 type Project struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`
@@ -605,7 +643,9 @@ type User struct {
 	Language                pgtype.Text        `json:"language"`
 	ProfileDescription      string             `json:"profile_description"`
 	// User-preferred IANA timezone for report rendering (Viewing tz). NULL means "use the browser-detected tz at render time". Affects dashboards, charts, and any "today" label shown to this user. Does not affect data materialisation — all rollups remain in UTC.
-	Timezone pgtype.Text `json:"timezone"`
+	Timezone          pgtype.Text        `json:"timezone"`
+	PasswordHash      pgtype.Text        `json:"password_hash"`
+	PasswordUpdatedAt pgtype.Timestamptz `json:"password_updated_at"`
 }
 
 type VerificationCode struct {

@@ -48,6 +48,7 @@ import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { toast } from "sonner";
 import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, StartDatePicker, DueDatePicker, AssigneePicker, LabelPicker } from ".";
 import { IssueTreeNode, assembleIssueTree } from "./issue-tree-node";
+import { LlmOverrideControl } from "./llm-override-control";
 import { IssueActionsDropdown, useIssueActions } from "../actions";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { CommentCard } from "./comment-card";
@@ -1263,6 +1264,9 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               projectId={issue.project_id}
               onUpdate={handleUpdateField}
             />
+          </PropRow>
+          <PropRow label="LLM">
+            <LlmOverrideControl issue={issue} />
           </PropRow>
 
           {/* Optional props — rendered only when set on the issue OR added

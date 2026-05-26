@@ -6,6 +6,24 @@ WHERE id = $1;
 SELECT * FROM "user"
 WHERE email = $1;
 
+-- name: CreateUserWithPassword :one
+-- Used by the email/password signup path. password_hash MUST be a bcrypt
+-- output (60 bytes); the DB CHECK enforces shape, the handler enforces
+-- algorithm choice.
+INSERT INTO "user" (name, email, password_hash, password_updated_at)
+VALUES ($1, $2, $3, now())
+RETURNING *;
+
+-- name: SetUserPassword :one
+-- Sets / replaces the user's bcrypt hash. Use for both initial set
+-- (legacy users opting in to a password) and rotation.
+UPDATE "user" SET
+    password_hash = $2,
+    password_updated_at = now(),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: CreateUser :one
 INSERT INTO "user" (name, email, avatar_url)
 VALUES ($1, $2, $3)
@@ -78,3 +96,18 @@ UPDATE "user" SET
     updated_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- name: CountRecentFailedLogins :one
+-- How many failed login attempts has this email had in the lockout window?
+-- Used by handler/auth_password.go to gate Login before bcrypt.
+SELECT COUNT(*) FROM failed_login_attempt
+WHERE email = $1
+  AND attempted_at >= $2;
+
+-- name: RecordFailedLoginAttempt :exec
+INSERT INTO failed_login_attempt (email, reason)
+VALUES ($1, $2);
+
+-- name: ClearFailedLoginAttempts :exec
+-- Called after a successful login to reset the counter for this email.
+DELETE FROM failed_login_attempt WHERE email = $1;

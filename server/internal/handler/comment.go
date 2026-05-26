@@ -269,6 +269,13 @@ func (h *Handler) ListComments(w http.ResponseWriter, r *http.Request) {
 		resp[i] = commentToResponse(c, grouped[cid], groupedAtt[cid])
 	}
 
+	// L2/L3 LLM policy: when the caller is a CLI subprocess on an
+	// external-runtime task, redact comment bodies before they reach the
+	// external LLM via the tool-call response stream.
+	if redactionRequired(r) {
+		resp = applyCommentPromptRedaction(r, resp, h.promptContextForWorkspace(r.Context(), issue.WorkspaceID))
+	}
+
 	// Emit the next cursor as response headers when the page is likely not
 	// the last one. The cursor's meaning is context-dependent: under recent
 	// it points at the oldest thread in the page (next page = older threads);

@@ -250,6 +250,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(authRL).Post("/auth/send-code", h.SendCode)
 	r.With(authVerifyRL).Post("/auth/verify-code", h.VerifyCode)
 	r.With(authRL).Post("/auth/google", h.GoogleLogin)
+	// Email + password sign-up / sign-in (handler/auth_password.go).
+	// Reuses the per-IP rate limiters that already gate the magic-link path.
+	r.With(authRL).Post("/auth/register", h.Register)
+	r.With(authVerifyRL).Post("/auth/login", h.Login)
 	r.Post("/auth/logout", h.Logout)
 
 	// Public API
@@ -304,6 +308,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
+		// TaskContext attaches the LLM routing decision when the caller is a
+		// CLI subprocess spawned by the daemon for a specific task. Used by
+		// issue/comment read handlers to conditionally redact tool-call
+		// responses headed to an external LLM. See middleware.TaskContextHeader.
+		r.Use(middleware.TaskContextMiddleware(queries))
 
 		// --- User-scoped routes (no workspace context required) ---
 		r.Get("/api/me", h.GetMe)
@@ -392,6 +401,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Post("/", h.CreateIssueTemplate)
 				r.Delete("/{id}", h.DeleteIssueTemplate)
 			})
+
+			// Cost estimates (Stage J — Cost Trend dashboard)
+			r.Get("/api/estimates", h.ListEstimates)
 
 			// Issues
 			r.Route("/api/issues", func(r chi.Router) {

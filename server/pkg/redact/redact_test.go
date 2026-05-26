@@ -135,6 +135,73 @@ func TestRedactGitLabToken(t *testing.T) {
 	}
 }
 
+func TestPromptMasksWorkspaceName(t *testing.T) {
+	t.Parallel()
+	got := Prompt("KGC ISP migration plan for KGC ISP team", PromptContext{WorkspaceName: "KGC ISP"})
+	if strings.Contains(got, "KGC ISP") {
+		t.Fatalf("workspace name not redacted: %s", got)
+	}
+	if !strings.Contains(got, "[REDACTED WORKSPACE]") {
+		t.Fatalf("missing placeholder: %s", got)
+	}
+}
+
+func TestPromptMasksRepoPaths(t *testing.T) {
+	t.Parallel()
+	got := Prompt("Open PR on github.com/acme/infra and github.com/acme/api",
+		PromptContext{RepoPaths: []string{"github.com/acme/infra", "github.com/acme/api"}})
+	if strings.Contains(got, "github.com/acme/") {
+		t.Fatalf("repo paths not redacted: %s", got)
+	}
+}
+
+func TestPromptMasksAWSAccountID(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"account: 123456789012",
+		"AWS account id 123456789012 is the production tenant",
+		"account_id=123456789012",
+	}
+	for _, in := range cases {
+		got := Prompt(in, PromptContext{})
+		if strings.Contains(got, "123456789012") {
+			t.Fatalf("account id not redacted: %s -> %s", in, got)
+		}
+		if !strings.Contains(got, "[REDACTED ACCOUNT]") {
+			t.Fatalf("missing placeholder for %q: %s", in, got)
+		}
+	}
+}
+
+func TestPromptDoesNotMaskRandom12DigitNumbers(t *testing.T) {
+	t.Parallel()
+	// No "account" keyword — should NOT match (avoid false positives on
+	// timestamps, big IDs, port concatenations).
+	got := Prompt("processed 123456789012 messages in 2.3s", PromptContext{})
+	if !strings.Contains(got, "123456789012") {
+		t.Fatalf("false positive: bare 12-digit number should not be masked: %s", got)
+	}
+}
+
+func TestPromptMasksNonLoopbackIPv4(t *testing.T) {
+	t.Parallel()
+	got := Prompt("connect to 10.0.1.5 via tunnel, debug on 127.0.0.1:8080", PromptContext{})
+	if strings.Contains(got, "10.0.1.5") {
+		t.Fatalf("non-loopback IP not redacted: %s", got)
+	}
+	if !strings.Contains(got, "127.0.0.1") {
+		t.Fatalf("loopback IP should be preserved: %s", got)
+	}
+}
+
+func TestPromptStillRunsTextPatterns(t *testing.T) {
+	t.Parallel()
+	got := Prompt("ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AB", PromptContext{})
+	if strings.Contains(got, "ghp_") {
+		t.Fatalf("Prompt should still apply Text() patterns: %s", got)
+	}
+}
+
 func TestRedactJWT(t *testing.T) {
 	t.Parallel()
 	input := "token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"

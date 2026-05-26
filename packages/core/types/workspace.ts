@@ -4,13 +4,40 @@ export interface WorkspaceRepo {
   url: string;
 }
 
+/**
+ * Recognised keys on workspace.settings. The server treats the column as
+ * free-form JSONB so unknown keys round-trip unchanged, but these are the
+ * keys the backend reads at runtime. Mirror of the WorkspaceResponse
+ * comment in server/internal/handler/workspace.go.
+ *
+ * Layer-2 LLM routing (see project_design_decisions.md §6):
+ *   - llm_policy: rewrite agent runtime at dispatch.
+ *       "hybrid" (default) — L1 agent default wins.
+ *       "local_only"       — external-default agents swap to local
+ *                            (skipped silently for MCP-required agents).
+ *       "cloud_first"      — local-default agents swap to external.
+ *   - redact_before_external: when true (default) AND resolved provider is
+ *       external, issue/comment reads from a CLI task subprocess go through
+ *       redact.Prompt before transmission to the external LLM.
+ */
+export type LLMPolicyMode = "hybrid" | "local_only" | "cloud_first";
+
+export interface WorkspaceSettings {
+  llm_policy?: LLMPolicyMode;
+  redact_before_external?: boolean;
+  external_provider?: string;
+  external_monthly_budget_usd?: number;
+  // Open-ended — other subsystems own their own keys.
+  [key: string]: unknown;
+}
+
 export interface Workspace {
   id: string;
   name: string;
   slug: string;
   description: string | null;
   context: string | null;
-  settings: Record<string, unknown>;
+  settings: WorkspaceSettings;
   repos: WorkspaceRepo[];
   issue_prefix: string;
   created_at: string;

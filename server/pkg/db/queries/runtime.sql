@@ -3,6 +3,19 @@ SELECT * FROM agent_runtime
 WHERE workspace_id = $1
 ORDER BY created_at ASC;
 
+-- name: FindOnlineRuntimeByProvider :one
+-- Picks an online runtime in the workspace whose provider is in the supplied
+-- list. Used by the llmpolicy resolver to swap an agent's L1-default runtime
+-- to a same-workspace alternative (e.g. claude → opencode) at dispatch time.
+-- Returns the longest-lived match for deterministic selection across
+-- equivalent online runtimes.
+SELECT * FROM agent_runtime
+WHERE workspace_id = sqlc.arg('workspace_id')
+  AND status = 'online'
+  AND provider = ANY(sqlc.arg('providers')::text[])
+ORDER BY created_at ASC
+LIMIT 1;
+
 -- name: GetAgentRuntime :one
 SELECT * FROM agent_runtime
 WHERE id = $1;

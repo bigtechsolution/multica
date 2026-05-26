@@ -6,6 +6,7 @@ import type {
   Attachment,
   CreateAgentFromTemplateResponse,
   GroupedIssuesResponse,
+  ListEstimatesResponse,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
   TimelineEntry,
@@ -173,6 +174,59 @@ export const ListIssuesResponseSchema = z.object({
 
 export const EMPTY_LIST_ISSUES_RESPONSE: ListIssuesResponse = {
   issues: [],
+  total: 0,
+};
+
+// --- Architecture cost estimates (Stage J) ---
+// Lenient on every field: backend rolls and the trend page must keep
+// rendering even when a future server returns a new `region` value or
+// drops `breakdown` for a sparse row.
+
+const ArchitectureEstimateBreakdownItemSchema = z.object({
+  section: z.string().optional(),
+  resource: z.string().optional(),
+  qty: z.number().optional(),
+  monthly_usd: z.number().optional(),
+  yearly_usd: z.number().optional(),
+  unit: z.string().optional(),
+  notes: z.string().optional(),
+}).loose();
+
+// routing_decision is the snapshot the cost-analyst agent stamps on each
+// estimate at write time. Empty object = pre-Stage-G demo / no decision
+// recorded. All fields optional so the schema tolerates a future server
+// adding new keys.
+const ArchitectureEstimateRoutingDecisionSchema = z.object({
+  layer: z.enum(["L1", "L2", "L3"]).optional(),
+  reason: z.string().optional(),
+  policy: z.enum(["hybrid", "local_only", "cloud_first"]).optional(),
+  override: z.enum(["local", "cloud"]).optional(),
+  provider: z.string().optional(),
+  redact_external: z.boolean().optional(),
+}).loose();
+
+const ArchitectureEstimateSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  issue_id: z.string().nullable(),
+  spec_hash: z.string(),
+  spec_path: z.string(),
+  pricing_snapshot_id: z.string(),
+  region: z.string(),
+  monthly_usd: z.number().default(0),
+  yearly_usd: z.number().default(0),
+  breakdown: z.array(ArchitectureEstimateBreakdownItemSchema).default([]),
+  routing_decision: ArchitectureEstimateRoutingDecisionSchema.default({}),
+  created_at: z.string(),
+}).loose();
+
+export const ListEstimatesResponseSchema = z.object({
+  estimates: z.array(ArchitectureEstimateSchema).default([]),
+  total: z.number().default(0),
+}).loose();
+
+export const EMPTY_LIST_ESTIMATES_RESPONSE: ListEstimatesResponse = {
+  estimates: [],
   total: 0,
 };
 

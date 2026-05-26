@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactElement, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -21,6 +21,7 @@ import {
 import { useAuthStore } from "@multica/core/auth";
 import { workspaceKeys } from "@multica/core/workspace/queries";
 import { api } from "@multica/core/api";
+import { ApiError } from "@multica/core/api/client";
 import type { User } from "@multica/core/types";
 import { useT } from "../i18n";
 
@@ -61,6 +62,14 @@ interface LoginPageProps {
    *  app?" prompt; desktop omits it (a download prompt inside the app
    *  would be absurd). */
   extra?: ReactNode;
+  /** Where the "Sign up" link should navigate. When omitted, the signup
+   *  link is hidden — desktop currently lacks an in-app signup flow. */
+  signupHref?: string;
+  /** Renderer for in-app links (web uses next/link; desktop uses
+   *  react-router). The default is a plain <a>, which is fine for web
+   *  too but causes a full page reload — supply a Link wrapper to keep
+   *  SPA navigation. */
+  LinkComponent?: (props: { href: string; className?: string; children: ReactNode }) => ReactElement;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,9 +102,21 @@ export function validateCliCallback(cliCallback: string): boolean {
   }
 }
 
+// Default <a> renderer for the signup / fallback link. Web shell can pass
+// a next/link-backed wrapper; desktop a react-router <Link>.
+function DefaultLink({ href, className, children }: { href: string; className?: string; children: ReactNode }) {
+  return (
+    <a href={href} className={className}>
+      {children}
+    </a>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
+type LoginStep = "password" | "code_request" | "code_verify" | "cli_confirm";
 
 export function LoginPage({
   logo,
@@ -105,11 +126,17 @@ export function LoginPage({
   onTokenObtained,
   onGoogleLogin,
   extra,
+  signupHref,
+  LinkComponent = DefaultLink,
 }: LoginPageProps) {
   const { t } = useT("auth");
   const qc = useQueryClient();
-  const [step, setStep] = useState<"email" | "code" | "cli_confirm">("email");
+  // password = email + password form (primary). code_request = email-only,
+  // sends a verification code (legacy fallback for users with no password
+  // set yet, e.g. accounts created before password auth landed).
+  const [step, setStep] = useState<LoginStep>("password");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -162,6 +189,57 @@ export function LoginPage({
     return () => clearTimeout(timer);
   }, [cooldown]);
 
+  const handlePasswordLogin = useCallback(
+    async (e?: React.FormEvent) => {
+      e?.preventDefault();
+      if (!email) {
+        setError(t(($) => $.common.email_required));
+        return;
+      }
+      if (!password) {
+        setError(t(($) => $.common.password_required));
+        return;
+      }
+      setLoading(true);
+      setError("");
+      try {
+        const user = await useAuthStore.getState().loginWithPassword(email, password);
+
+        if (cliCallback) {
+          // Mirror the verify-code CLI handoff: mint a CLI token, redirect.
+          const { token } = await api.issueCliToken();
+          onTokenObtained?.();
+          redirectToCliCallback(cliCallback.url, token, cliCallback.state);
+          return;
+        }
+
+        // Seed workspaces so caller can pick post-login destination.
+        const wsList = await api.listWorkspaces();
+        qc.setQueryData(workspaceKeys.list(), wsList);
+        onTokenObtained?.();
+        // user is already in the store from loginWithPassword; onSuccess
+        // reads from the store, so no need to thread it through.
+        void user;
+        onSuccess();
+      } catch (err) {
+        // The server always returns the same "invalid credentials" 401
+        // for unknown email / wrong password / null hash — defeats
+        // enumeration. Surface a single generic message here too.
+        if (err instanceof ApiError && err.status === 401) {
+          setError(t(($) => $.errors.invalid_credentials));
+        } else {
+          setError(
+            err instanceof Error
+              ? err.message
+              : t(($) => $.errors.server_unreachable),
+          );
+        }
+        setLoading(false);
+      }
+    },
+    [email, password, cliCallback, onSuccess, onTokenObtained, qc, t],
+  );
+
   const handleSendCode = useCallback(
     async (e?: React.FormEvent) => {
       e?.preventDefault();
@@ -173,7 +251,7 @@ export function LoginPage({
       setError("");
       try {
         await useAuthStore.getState().sendCode(email);
-        setStep("code");
+        setStep("code_verify");
         setCode("");
         setCooldown(60);
       } catch (err) {
@@ -196,7 +274,6 @@ export function LoginPage({
       setError("");
       try {
         if (cliCallback) {
-          // CLI path: get token directly for the redirect URL
           const { token } = await api.verifyCode(email, value);
           localStorage.setItem("multica_token", token);
           api.setToken(token);
@@ -205,10 +282,6 @@ export function LoginPage({
           return;
         }
 
-        // Normal path: seed the workspace list into the Query cache so the
-        // caller's onSuccess can read it synchronously to compute a destination
-        // URL (first workspace's slug, or /workspaces/new for zero-workspace
-        // users).
         await useAuthStore.getState().verifyCode(email, value);
         const wsList = await api.listWorkspaces();
         qc.setQueryData(workspaceKeys.list(), wsList);
@@ -248,12 +321,10 @@ export function LoginPage({
       let token: string;
 
       if (authSourceRef.current === "localStorage") {
-        // Session was detected via localStorage — reuse that token directly.
         const stored = localStorage.getItem("multica_token");
         if (!stored) throw new Error("token missing");
         token = stored;
       } else {
-        // Session was detected via cookie — obtain a bearer token from the server.
         const res = await api.issueCliToken();
         token = res.token;
       }
@@ -263,7 +334,7 @@ export function LoginPage({
     } catch {
       setError(t(($) => $.errors.cli_auth_failed));
       setExistingUser(null);
-      setStep("email");
+      setStep("password");
       setLoading(false);
     }
   };
@@ -319,7 +390,7 @@ export function LoginPage({
               className="w-full"
               onClick={() => {
                 setExistingUser(null);
-                setStep("email");
+                setStep("password");
               }}
             >
               {t(($) => $.cli.different_account)}
@@ -331,10 +402,10 @@ export function LoginPage({
   }
 
   // -------------------------------------------------------------------------
-  // Code verification step
+  // Code verification step (legacy fallback)
   // -------------------------------------------------------------------------
 
-  if (step === "code") {
+  if (step === "code_verify") {
     return (
       <div className="flex min-h-svh items-center justify-center">
         <Card className="w-full max-w-sm">
@@ -388,7 +459,7 @@ export function LoginPage({
               variant="ghost"
               className="w-full"
               onClick={() => {
-                setStep("email");
+                setStep("password");
                 setCode("");
                 setError("");
               }}
@@ -402,7 +473,73 @@ export function LoginPage({
   }
 
   // -------------------------------------------------------------------------
-  // Email step
+  // Email-code request step (the legacy "enter email then get code" entry).
+  // Reached by clicking "Sign in with an email code instead" on the
+  // password step.
+  // -------------------------------------------------------------------------
+
+  if (step === "code_request") {
+    return (
+      <div className="flex min-h-svh items-center justify-center">
+        <Card className="w-full max-w-sm">
+          <CardHeader className="text-center">
+            {logo && <div className="mx-auto mb-4">{logo}</div>}
+            <CardTitle className="text-2xl">
+              {t(($) => $.code_signin.title)}
+            </CardTitle>
+            <CardDescription>
+              {t(($) => $.code_signin.description)}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form id="code-form" onSubmit={handleSendCode} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="code-email">{t(($) => $.common.email)}</Label>
+                <Input
+                  id="code-email"
+                  type="email"
+                  placeholder={t(($) => $.common.email_placeholder)}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+              {error && (
+                <p className="text-sm text-destructive">{error}</p>
+              )}
+            </form>
+          </CardContent>
+          <CardFooter className="flex flex-col gap-3">
+            <Button
+              type="submit"
+              form="code-form"
+              className="w-full"
+              size="lg"
+              disabled={!email || loading}
+            >
+              {loading
+                ? t(($) => $.code_signin.sending)
+                : t(($) => $.code_signin.continue)}
+            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                setStep("password");
+                setError("");
+              }}
+              className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+            >
+              {t(($) => $.code_signin.use_password)}
+            </button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Password step (primary)
   // -------------------------------------------------------------------------
 
   return (
@@ -418,7 +555,7 @@ export function LoginPage({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form id="login-form" onSubmit={handleSendCode} className="space-y-4">
+          <form id="login-form" onSubmit={handlePasswordLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="login-email">{t(($) => $.common.email)}</Label>
               <Input
@@ -427,7 +564,20 @@ export function LoginPage({
                 placeholder={t(($) => $.common.email_placeholder)}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 autoFocus
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="login-password">{t(($) => $.common.password)}</Label>
+              <Input
+                id="login-password"
+                type="password"
+                placeholder={t(($) => $.common.password_placeholder)}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 required
               />
             </div>
@@ -442,12 +592,34 @@ export function LoginPage({
             form="login-form"
             className="w-full"
             size="lg"
-            disabled={!email || loading}
+            disabled={!email || !password || loading}
           >
             {loading
               ? t(($) => $.signin.sending)
               : t(($) => $.signin.continue)}
           </Button>
+          {signupHref && (
+            <p className="text-sm text-muted-foreground">
+              {t(($) => $.signin.no_account)}{" "}
+              <LinkComponent
+                href={signupHref}
+                className="font-medium text-foreground underline-offset-4 hover:underline"
+              >
+                {t(($) => $.signin.signup_link)}
+              </LinkComponent>
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setStep("code_request");
+              setPassword("");
+              setError("");
+            }}
+            className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+          >
+            {t(($) => $.signin.use_code)}
+          </button>
           {(google || onGoogleLogin) && (
             <>
               <div className="relative w-full">
