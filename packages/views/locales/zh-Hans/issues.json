@@ -78,11 +78,13 @@
     "tooltip_list": "列表视图",
     "tooltip_gantt": "甘特图",
     "tooltip_tree": "树形视图",
+    "tooltip_calendar": "日历视图",
     "section": "视图",
     "board": "看板",
     "list": "列表",
     "gantt": "甘特图",
-    "tree": "树形"
+    "tree": "树形",
+    "calendar": "日历"
   },
   "gantt": {
     "header_issue": "Issue",

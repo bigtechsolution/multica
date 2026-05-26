@@ -42,6 +42,7 @@ import { BoardView } from "../../issues/components/board-view";
 import { ListView } from "../../issues/components/list-view";
 import { GanttView } from "../../issues/components/gantt-view";
 import { TreeView } from "../../issues/components/tree-view";
+import { CalendarView } from "../../issues/components/calendar-view";
 import { BatchActionToolbar } from "../../issues/components/batch-action-toolbar";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Button } from "@multica/ui/components/ui/button";
@@ -236,6 +237,7 @@ function ProjectIssuesContent({
       )}
       {viewMode === "gantt" && <GanttView issues={filteredGanttIssues} />}
       {viewMode === "tree" && <TreeView issues={issues} />}
+      {viewMode === "calendar" && <CalendarView issues={issues} />}
     </div>
   );
 }
@@ -310,7 +312,7 @@ function ProjectIssuesSurface({
 
   return (
     <>
-      <IssuesHeader scopedIssues={projectIssues} allowGantt allowTree />
+      <IssuesHeader scopedIssues={projectIssues} allowGantt allowTree allowCalendar />
       <ProjectIssuesContent
         projectId={projectId}
         projectIssues={projectIssues}

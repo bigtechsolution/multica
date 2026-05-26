@@ -79,11 +79,13 @@
     "tooltip_list": "List view",
     "tooltip_gantt": "Gantt view",
     "tooltip_tree": "Tree view",
+    "tooltip_calendar": "Calendar view",
     "section": "View",
     "board": "Board",
     "list": "List",
     "gantt": "Gantt",
-    "tree": "Tree"
+    "tree": "Tree",
+    "calendar": "Calendar"
   },
   "gantt": {
     "header_issue": "Issue",
