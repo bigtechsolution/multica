@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  CalendarDays,
   ChartGantt,
   Network,
   Check,
@@ -498,10 +499,12 @@ export function IssuesHeader({
   scopedIssues,
   allowGantt = false,
   allowTree = false,
+  allowCalendar = false,
 }: {
   scopedIssues: Issue[];
   allowGantt?: boolean;
   allowTree?: boolean;
+  allowCalendar?: boolean;
 }) {
   const { t } = useT("issues");
   const scope = useIssuesScopeStore((s) => s.scope);
@@ -570,7 +573,7 @@ export function IssuesHeader({
           onToggle={toggleAgentRunningFilter}
           scopedIssueIds={scopedIssueIds}
         />
-        <IssueDisplayControls scopedIssues={scopedIssues} allowGantt={allowGantt} allowTree={allowTree} />
+        <IssueDisplayControls scopedIssues={scopedIssues} allowGantt={allowGantt} allowTree={allowTree} allowCalendar={allowCalendar} />
       </div>
     </div>
   );
@@ -581,6 +584,7 @@ export function IssueDisplayControls({
   hideViewToggle = false,
   allowGantt = false,
   allowTree = false,
+  allowCalendar = false,
 }: {
   scopedIssues: Issue[];
   hideViewToggle?: boolean;
@@ -593,6 +597,11 @@ export function IssueDisplayControls({
   // at the workspace level). Other surfaces leave this default false so
   // the dropdown stays focused on Board/List.
   allowTree?: boolean;
+  // Same opt-in pattern as allowGantt — CalendarView lives at project
+  // scope where start_date / due_date have meaning. Workspace-level
+  // calendar would surface every issue across every project, useful
+  // someday but not without filtering UX.
+  allowCalendar?: boolean;
 }) {
   const { t } = useT("issues");
   const viewMode = useViewStore((s) => s.viewMode);
@@ -1015,6 +1024,12 @@ export function IssueDisplayControls({
                   <DropdownMenuItem onClick={() => act.setViewMode("tree")}>
                     <Network />
                     {t(($) => $.view.tree)}
+                  </DropdownMenuItem>
+                )}
+                {allowCalendar && (
+                  <DropdownMenuItem onClick={() => act.setViewMode("calendar")}>
+                    <CalendarDays />
+                    {t(($) => $.view.calendar)}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuGroup>
