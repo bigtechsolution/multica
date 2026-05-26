@@ -1,4 +1,5 @@
 export type { Issue, IssueStatus, IssuePriority, IssueAssigneeType, IssueMetadata, IssueMetadataValue, IssueReaction } from "./issue";
+export type { IssueTemplate } from "./issue-template";
 export type {
   Agent,
   AgentStatus,

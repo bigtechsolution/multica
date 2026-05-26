@@ -99,6 +99,7 @@ import type {
   Squad,
   SquadMember,
   SquadMemberStatusListResponse,
+  IssueTemplate,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -509,6 +510,29 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  async listIssueTemplates(): Promise<{ templates: IssueTemplate[] }> {
+    return this.fetch("/api/issue-templates");
+  }
+
+  async createIssueTemplate(data: {
+    name: string;
+    title?: string;
+    description?: string;
+    priority?: string;
+    assignee_type?: string;
+    assignee_id?: string;
+    extra?: Record<string, unknown>;
+  }): Promise<IssueTemplate> {
+    return this.fetch("/api/issue-templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteIssueTemplate(id: string): Promise<void> {
+    await this.fetch(`/api/issue-templates/${id}`, { method: "DELETE" });
   }
 
   async quickCreateIssue(data: {
