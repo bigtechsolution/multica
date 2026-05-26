@@ -19,12 +19,18 @@ import (
 // extContentTypes overrides http.DetectContentType for extensions it gets wrong.
 // Go's sniffer returns text/xml for SVG, text/plain for CSS/JS, etc.
 var extContentTypes = map[string]string{
-	".svg":  "image/svg+xml",
-	".css":  "text/css",
-	".js":   "application/javascript",
-	".mjs":  "application/javascript",
-	".json": "application/json",
-	".wasm": "application/wasm",
+	".svg":    "image/svg+xml",
+	".css":    "text/css",
+	".js":     "application/javascript",
+	".mjs":    "application/javascript",
+	".json":   "application/json",
+	".wasm":   "application/wasm",
+	// .drawio is the canonical multi-page diagrams.net format (gzipped XML
+	// wrapper around mxfile). Go's sniffer sees the leading <mxfile/<diagram
+	// XML and returns text/xml, but the diagrams.net spec lists this MIME
+	// type — pinning it lets the frontend dispatcher reliably route to the
+	// inline drawio renderer regardless of how the file was generated.
+	".drawio": "application/vnd.jgraph.mxfile+xml",
 }
 
 const maxUploadSize = 100 << 20 // 100 MB
@@ -511,7 +517,12 @@ func isTextPreviewable(contentType, filename string) bool {
 		".java", ".kt", ".swift",
 		".c", ".cc", ".cpp", ".h", ".hpp",
 		".cs", ".php", ".lua", ".vim",
-		".dockerfile", ".makefile", ".gitignore":
+		".dockerfile", ".makefile", ".gitignore",
+		// .drawio — diagrams.net XML. Needed by the inline DrawioPreview
+		// renderer (packages/views/editor/drawio-preview.tsx) which fetches
+		// the XML via this same /content proxy and posts it into the
+		// embedded viewer.
+		".drawio":
 		return true
 	}
 	// Filenames without extension that match well-known build files.

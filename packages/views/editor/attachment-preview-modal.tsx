@@ -49,6 +49,7 @@ import { useT } from "../i18n";
 import { useNavigation } from "../navigation";
 import { openExternal } from "../platform";
 import { ReadonlyContent } from "./readonly-content";
+import { DrawioPreview } from "./drawio-preview";
 import {
   extensionToLanguage,
   getPreviewKind,
@@ -422,6 +423,19 @@ function PreviewContent({
             />
           )}
         />
+      );
+    case "drawio":
+      // Full-modal drawio viewer — reuses the inline DrawioPreview's
+      // postMessage flow with the modal frame providing the chrome.
+      return (
+        <div className="h-full w-full bg-background">
+          <DrawioPreview
+            attachmentId={state.attachmentId!}
+            filename={state.filename}
+            onPreview={() => undefined /* already in preview */}
+            onDownload={onDownload}
+          />
+        </div>
       );
   }
 }

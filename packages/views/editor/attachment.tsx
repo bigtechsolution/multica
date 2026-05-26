@@ -38,6 +38,7 @@ import { useAttachmentPreview } from "./attachment-preview-modal";
 import { useDownloadAttachment } from "./use-download-attachment";
 import { AttachmentCard } from "./attachment-card";
 import { HtmlAttachmentPreview } from "./html-attachment-preview";
+import { DrawioPreview } from "./drawio-preview";
 import { getPreviewKind, type PreviewKind } from "./utils/preview";
 
 // ---------------------------------------------------------------------------
@@ -175,6 +176,20 @@ export function Attachment({
           onDownload={handleDownload}
           onDelete={onDelete}
           className={className}
+        />
+        {preview.modal}
+      </>
+    );
+  }
+
+  if (kind === "drawio" && state.attachmentId && !state.uploading) {
+    return (
+      <>
+        <DrawioPreview
+          attachmentId={state.attachmentId}
+          filename={state.filename}
+          onPreview={openPreview}
+          onDownload={handleDownload}
         />
         {preview.modal}
       </>
