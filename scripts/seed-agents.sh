@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
-# Idempotently create the 8 architect agents (Layer-1 LLM defaults) and
-# attach DB-stored skills to each.
+# Idempotently create the 8 architect agents and attach DB-stored skills.
+#
+# Layer-1 LLM defaults (locked 2026-05-24 after Qwen quality/context
+# limitations made the original hybrid split untenable for this fork):
+#   ALL 8 agents → Claude (Opus 4.7).
+#   OpenCode/Qwen runtime stays registered as a fallback but no agent
+#   defaults to it. Per-issue Force Local (L3) still works for users
+#   who want to drop to Qwen on small tasks — see [[stage-i-llm-routing]].
+#
+# Why the flip:
+#   - Quality gap material: Claude added AWS best-practice annotations
+#     (Vault Lock, EventBridge) and parsed meta.name correctly; Qwen
+#     produced same content but missed metadata + couldn't add domain
+#     reasoning. Captured in MUL-10 smoke A/B.
+#   - Qwen3.6-Coder context window (132K) overflowed when @diagrammer
+#     loaded full aws-spec-to-drawio skill bundle (examples/, references/,
+#     *.py) — task_id 57985959 failed with 132,001/132,000 tokens.
+#     Claude (200K) handles it fine.
 #
 # Requires: skills already seeded via seed-skills.sh, daemon running so
 # runtimes are registered (multica runtime list shows online).
@@ -100,22 +116,22 @@ upsert_agent "aws-as-is-importer" "$RT_CLAUDE" "$MDL_CLAUDE" \
   "When an issue attaches a hand-drawn .drawio file, use aws-drawio-to-spec to extract the structured architecture.yaml. Flag any elements you cannot identify in a comment, do not guess service types." \
   aws-drawio-to-spec
 
-upsert_agent "aws-architect" "$RT_OPENCODE" "$MDL_QWEN" \
+upsert_agent "aws-architect" "$RT_CLAUDE" "$MDL_CLAUDE" \
   "Edits architecture.yaml on user request (sizing, AZ, services); regenerates artifacts" \
   "You modify architecture.yaml based on user requests like 'make RDS multi-AZ' or 're-architect for 10x scale'. Always validate with the drawio generator dry-run after edits. Commit changes to a PR branch — never directly to main. After spec changes, downstream agents (cost-analyst, iac-engineer, diagrammer) pick up automatically." \
   aws-spec-to-drawio aws-drawio-xml-architect c4-model-drawio-architect architecture-design
 
-upsert_agent "cost-analyst" "$RT_OPENCODE" "$MDL_QWEN" \
+upsert_agent "cost-analyst" "$RT_CLAUDE" "$MDL_CLAUDE" \
   "Computes monthly AWS cost from spec; posts delta vs previous estimate" \
   "When given an updated architecture.yaml, run aws-spec-to-cost to produce a cost.md report. Compute delta vs the previous estimate for this spec path. Post the delta + headline number in an issue comment. Refresh local pricing snapshot via aws-pricing-snapshot-refresh when older than 30 days." \
   aws-spec-to-cost aws-pricing-snapshot-refresh cost-optimization
 
-upsert_agent "iac-engineer" "$RT_OPENCODE" "$MDL_QWEN" \
+upsert_agent "iac-engineer" "$RT_CLAUDE" "$MDL_CLAUDE" \
   "Compiles spec into layered Terraform; opens PR with plan dry-run in description" \
   "Run aws-spec-to-terraform on the workspace spec to produce layered TF (10-vpc / 20-subnets / 30-security / 40-data / 50-compute / 60-edge). Backend = S3 + DynamoDB per workspace.settings. Validate via terraform validate + plan dry-run; include the plan summary in PR body. NEVER apply — apply happens only after human PR merge by CI." \
   aws-spec-to-terraform aws-spec-to-bom terraform-provider-upgrade
 
-upsert_agent "diagrammer" "$RT_OPENCODE" "$MDL_QWEN" \
+upsert_agent "diagrammer" "$RT_CLAUDE" "$MDL_CLAUDE" \
   "Produces .drawio files (AWS reference style + C4) from spec" \
   "Generate diagrams from the current architecture.yaml. Default to deterministic offline output via aws-drawio-xml-architect. Use Drawio MCP for interactive editing if requested. Always emit (1) AWS reference style L3 deployment and (2) C4 L1 Context + L2 Container. Attach all three to the issue." \
   drawio-mcp-diagramming aws-drawio-xml-architect c4-model-drawio-architect
