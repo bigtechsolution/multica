@@ -17,6 +17,7 @@ export type PreviewKind =
   | "audio"
   | "markdown"
   | "html"
+  | "drawio"
   | "text";
 
 const EXT_LANGUAGE_MAP: Record<string, string> = {
@@ -100,6 +101,10 @@ const TEXT_EXTENSIONS = new Set<string>([
   "java", "kt", "swift",
   "c", "cc", "cpp", "h", "hpp",
   "cs", "php", "lua", "vim",
+  // .drawio — fetched as text by DrawioPreview; mirrored in
+  // server/internal/handler/file.go isTextPreviewable. Listed here so the
+  // /content proxy returns the XML body for the embedded viewer.
+  "drawio",
 ]);
 
 const TEXT_CONTENT_TYPES = new Set<string>([
@@ -180,6 +185,15 @@ export function getPreviewKind(
   }
   if (ct === "text/html" || ext === "html" || ext === "htm") {
     return "html";
+  }
+
+  // .drawio — diagrams.net XML wrapper. Match either the canonical MIME
+  // (server stamps it via extContentTypes) or the extension as a fallback
+  // for legacy uploads with sniffer-derived text/xml content_type. Must
+  // come BEFORE the isTextLike branch — .drawio IS text-like but we want
+  // the visual viewer, not raw XML.
+  if (ct === "application/vnd.jgraph.mxfile+xml" || ext === "drawio") {
+    return "drawio";
   }
 
   if (isTextLike(contentType, filename)) return "text";
