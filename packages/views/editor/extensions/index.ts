@@ -47,6 +47,7 @@ import { createFileUploadExtension } from "./file-upload";
 import { FileCardExtension } from "./file-card";
 import { ImageView } from "./image-view";
 import { BlockMathExtension, InlineMathExtension } from "./math";
+import { CalloutExtension } from "./callout";
 
 const lowlight = createLowlight(common);
 
@@ -130,6 +131,7 @@ export function createEditorExtensions(
     TableCell,
     BlockMathExtension,
     InlineMathExtension,
+    CalloutExtension,
     // 3-space indent so nested ordered lists survive CommonMark in ReadonlyContent.
     Markdown.configure({ indentation: { style: "space", size: 3 } }),
     // Make Cmd+C / Cmd+X / drag write Markdown source to clipboard text/plain
